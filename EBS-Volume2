@@ -1,0 +1,83 @@
+import boto3
+import time
+
+def lambda_handler(event, context):
+    # Initialize boto3 client for EC2
+    ec2 = boto3.client('ec2')
+
+    # Get a list of all EBS volumes in the region
+    volumes = ec2.describe_volumes()['Volumes']
+
+    # Process each volume
+    for volume in volumes:
+        volume_id = volume['VolumeId']
+        volume_type = volume['VolumeType']
+
+        # If the volume type is gp2, process it
+        if volume_type == 'gp2':
+            print(f"Processing volume: {volume_id}")
+
+            # Take a snapshot of the gp2 volume
+            snapshot = ec2.create_snapshot(
+                VolumeId=volume_id,
+                Description=f"Snapshot of volume {volume_id} for gp3 conversion"
+            )
+            snapshot_id = snapshot['SnapshotId']
+            print(f"Snapshot created: {snapshot_id}")
+
+            # Wait for the snapshot to be completed
+            while True:
+                snapshot_status = ec2.describe_snapshots(SnapshotIds=[snapshot_id])['Snapshots'][0]['State']
+                if snapshot_status == 'completed':
+                    break
+                print(f"Waiting for snapshot {snapshot_id} to complete...")
+                time.sleep(30)
+
+            # Detach the gp2 volume
+            if volume['Attachments']:
+                instance_id = volume['Attachments'][0]['InstanceId']
+                device_name = volume['Attachments'][0]['Device']
+                print(f"Detaching volume {volume_id} from instance {instance_id}")
+                ec2.detach_volume(
+                    VolumeId=volume_id,
+                    InstanceId=instance_id,
+                    Device=device_name
+                )
+
+                # Wait for the volume to be detached
+                while True:
+                    volume_status = ec2.describe_volumes(VolumeIds=[volume_id])['Volumes'][0]['State']
+                    if volume_status == 'available':
+                        break
+                    print(f"Waiting for volume {volume_id} to detach...")
+                    time.sleep(30)
+
+            # Create a new gp3 volume from the snapshot
+            new_volume = ec2.create_volume(
+                AvailabilityZone=volume['AvailabilityZone'],
+                SnapshotId=snapshot_id,
+                VolumeType='gp3'
+            )
+            new_volume_id = new_volume['VolumeId']
+            print(f"New gp3 volume created: {new_volume_id}")
+
+            # Wait for the new volume to be available
+            while True:
+                new_volume_status = ec2.describe_volumes(VolumeIds=[new_volume_id])['Volumes'][0]['State']
+                if new_volume_status == 'available':
+                    break
+                print(f"Waiting for new volume {new_volume_id} to be available...")
+                time.sleep(30)
+
+            # Attach the new gp3 volume to the original instance
+            if volume['Attachments']:
+                print(f"Attaching new volume {new_volume_id} to instance {instance_id}")
+                ec2.attach_volume(
+                    VolumeId=new_volume_id,
+                    InstanceId=instance_id,
+                    Device=device_name
+                )
+
+            print(f"Completed processing volume {volume_id}")
+
+    print("Lambda function execution completed.")
