@@ -1,0 +1,49 @@
+#This script will delete the snapshots which are created 3 years ago.
+
+#!/bin/bash
+
+# List of regions to process
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+
+# Define the date range for snapshots (3 years ago)
+# Calculate the start and end date for the 3-year range
+current_date=$(date +%Y-%m-%d)
+start_date=$(date -d "$current_date - 3 years" +%Y-%m-%d)
+end_date=$(date +%Y-%m-%d)
+
+# Function to delete snapshots in a given region
+delete_snapshots() {
+    local region=$1
+    
+    echo "Processing region: $region"
+
+    # Get list of snapshots created between the start and end date
+    snapshot_ids=$(aws ec2 describe-snapshots \
+        --owner-ids self \
+        --filters "Name=start-time,Values=$start_date..$end_date" \
+        --region "$region" \
+        --query "Snapshots[*].SnapshotId" \
+        --output text)
+
+    # Loop through each snapshot and delete it
+    if [ -z "$snapshot_ids" ]; then
+        echo "No snapshots to delete in region: $region"
+    else
+        for snapshot_id in $snapshot_ids; do
+            echo "Deleting snapshot: $snapshot_id"
+            aws ec2 delete-snapshot \
+                --snapshot-id "$snapshot_id" \
+                --region "$region"
+            echo "Snapshot $snapshot_id deleted."
+        done
+    fi
+    
+    echo "Region $region processed."
+}
+
+# Iterate through each region and delete snapshots
+for region in "${regions[@]}"; do
+    delete_snapshots "$region"
+done
+
+echo "All regions processed."
