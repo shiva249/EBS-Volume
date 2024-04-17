@@ -1,0 +1,50 @@
+#this script will delete AMI backups which are created 3 years ago
+
+#!/bin/bash
+
+# List of regions to process
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+
+# Define the date range for AMI creation (3 years ago)
+# Calculate the start and end date for the 3-year range
+current_date=$(date +%Y-%m-%d)
+start_date=$(date -d "$current_date - 3 years" +%Y-%m-%d)
+end_date=$(date +%Y-%m-%d)
+
+# Function to delete AMIs in a given region
+delete_amis() {
+    local region=$1
+    
+    echo "Processing region: $region"
+
+    # Get list of AMIs created between the start and end date
+    amis=$(aws ec2 describe-images \
+        --owners self \
+        --filters "Name=creation-date,Values=$start_date..$end_date" \
+        --region "$region" \
+        --query "Images[*].ImageId" \
+        --output text)
+
+    # Loop through each AMI and delete it
+    if [ -z "$amis" ]; then
+        echo "No AMIs to delete in region: $region"
+    else
+        for ami_id in $amis; do
+            echo "Deleting AMI: $ami_id"
+            # Deregister the AMI
+            aws ec2 deregister-image \
+                --image-id "$ami_id" \
+                --region "$region"
+            echo "AMI $ami_id deregistered."
+        done
+    fi
+    
+    echo "Region $region processed."
+}
+
+# Iterate through each region and delete AMIs
+for region in "${regions[@]}"; do
+    delete_amis "$region"
+done
+
+echo "All regions processed."
