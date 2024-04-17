@@ -1,0 +1,1 @@
+aws ec2 describe-volumes --region <your-region> --query "Volumes[?Attachments==null].{VolumeID:VolumeId,Size:Size,State:State,AvailabilityZone:AvailabilityZone}" --output table
