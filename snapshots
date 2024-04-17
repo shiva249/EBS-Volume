@@ -1,0 +1,43 @@
+#This script will delete the snapshots which are created today.
+#!/bin/bash
+
+# List of regions to process
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+
+# Get the current date in the format YYYY-MM-DD
+current_date=$(date +'%Y-%m-%d')
+
+# Function to delete snapshots created on the current date in a given region
+delete_snapshots() {
+    local region=$1
+    
+    echo "Processing region: $region"
+
+    # Get list of all EBS snapshots
+    snapshots=$(aws ec2 describe-snapshots \
+        --owner-ids self \
+        --region "$region" \
+        --query "Snapshots[?StartTime>=\`$current_date\`].SnapshotId" \
+        --output text)
+
+    # Loop through all snapshots and delete them
+    for snapshot_id in $snapshots; do
+        echo "Deleting snapshot: $snapshot_id"
+        
+        # Delete the snapshot
+        aws ec2 delete-snapshot \
+            --snapshot-id "$snapshot_id" \
+            --region "$region"
+        
+        echo "Snapshot $snapshot_id deleted."
+    done
+
+    echo "Region $region processed."
+}
+
+# Iterate through each region and process it
+for region in "${regions[@]}"; do
+    delete_snapshots "$region"
+done
+
+echo "All regions processed."
