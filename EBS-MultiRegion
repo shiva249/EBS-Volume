@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# List of regions to process
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+
+# Function to process a given region
+process_region() {
+    local region=$1
+    
+    echo "Processing region: $region"
+
+    # Get list of all gp2 volumes
+    volumes=$(aws ec2 describe-volumes \
+        --filters "Name=volume-type,Values=gp2" \
+        --query "Volumes[*].{VolumeId:VolumeId}" \
+        --region "$region" \
+        --output text)
+
+    # Loop through all gp2 volumes in the region
+    for volume_id in $volumes; do
+        echo "Processing volume: $volume_id"
+
+        # Create a snapshot for the volume
+        snapshot_id=$(aws ec2 create-snapshot \
+            --volume-id "$volume_id" \
+            --description "Backup of volume $volume_id" \
+            --region "$region" \
+            --query "SnapshotId" \
+            --output text)
+
+        echo "Snapshot created: $snapshot_id"
+
+        # Wait for the snapshot to be completed
+        echo "Waiting for snapshot to complete..."
+        aws ec2 wait snapshot-completed \
+            --snapshot-ids "$snapshot_id" \
+            --region "$region"
+
+        echo "Snapshot $snapshot_id completed."
+
+        # Modify the volume to gp3
+        echo "Modifying volume $volume_id to gp3..."
+        aws ec2 modify-volume \
+            --volume-id "$volume_id" \
+            --volume-type "gp3" \
+            --region "$region"
+
+        # Wait for the volume modification to be completed
+        echo "Waiting for volume modification to complete..."
+        aws ec2 wait volume-in-use \
+            --volume-ids "$volume_id" \
+            --region "$region"
+
+        echo "Volume $volume_id modified to gp3."
+
+    done
+
+    echo "Region $region processed."
+}
+
+# Iterate through each region and process it
+for region in "${regions[@]}"; do
+    process_region "$region"
+done
+
+echo "All regions processed."
