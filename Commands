@@ -1,1 +1,5 @@
 aws ec2 describe-volumes --region <your-region> --query "Volumes[?Attachments==null].{VolumeID:VolumeId,Size:Size,State:State,AvailabilityZone:AvailabilityZone}" --output table
+aws ec2 describe-volumes \
+    --filters Name=status,Values=available \
+    --query "Volumes[*].{VolumeID:VolumeId,Size:Size,State:State,AvailabilityZone:AvailabilityZone}" \
+    --output table
