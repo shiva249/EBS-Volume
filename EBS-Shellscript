@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Set AWS region (update this to the region you want to work with)
+REGION="us-east-1"
+
+# Get list of all gp2 volumes
+volumes=$(aws ec2 describe-volumes \
+    --filters "Name=volume-type,Values=gp2" \
+    --query "Volumes[*].{VolumeId:VolumeId}" \
+    --region "$REGION" \
+    --output text)
+
+# Loop through all gp2 volumes
+for volume_id in $volumes; do
+    echo "Processing volume: $volume_id"
+
+    # Create a snapshot for the volume
+    snapshot_id=$(aws ec2 create-snapshot \
+        --volume-id "$volume_id" \
+        --description "Backup of volume $volume_id" \
+        --region "$REGION" \
+        --query "SnapshotId" \
+        --output text)
+
+    echo "Snapshot created: $snapshot_id"
+
+    # Wait for the snapshot to be completed (use sleep as a basic method, adjust the time as needed)
+    echo "Waiting for snapshot to complete..."
+    aws ec2 wait snapshot-completed \
+        --snapshot-ids "$snapshot_id" \
+        --region "$REGION"
+
+    echo "Snapshot $snapshot_id completed."
+
+    # Modify the volume to gp3
+    echo "Modifying volume $volume_id to gp3..."
+    aws ec2 modify-volume \
+        --volume-id "$volume_id" \
+        --volume-type "gp3" \
+        --region "$REGION"
+
+    # Wait for the volume modification to be completed
+    echo "Waiting for volume modification to complete..."
+    aws ec2 wait volume-in-use \
+        --volume-ids "$volume_id" \
+        --region "$REGION"
+
+    echo "Volume $volume_id modified to gp3."
+
+done
+
+echo "All gp2 volumes processed."
