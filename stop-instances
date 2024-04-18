@@ -1,0 +1,38 @@
+#This script will stop the instances which is having tags as Environment is non production
+#!/bin/bash
+
+# Specify the region
+REGION="us-east-1"
+
+# Specify the tag key and value to filter instances
+TAG_KEY="Environment"
+TAG_VALUE="non-production"
+
+# Use AWS CLI to describe instances with the specified tag
+INSTANCE_IDS=$(aws ec2 describe-instances --region "$REGION" \
+  --filters "Name=tag:$TAG_KEY,Values=$TAG_VALUE" \
+  --query "Reservations[*].Instances[*].InstanceId" \
+  --output text)
+
+# Check if any instances were found
+if [ -z "$INSTANCE_IDS" ]; then
+  echo "No instances found with the tag $TAG_KEY=$TAG_VALUE."
+  exit 0
+fi
+
+# Output the list of instance IDs
+echo "Instances with the tag $TAG_KEY=$TAG_VALUE:"
+echo "$INSTANCE_IDS"
+
+# Stop the instances found
+echo "Stopping instances..."
+aws ec2 stop-instances --region "$REGION" --instance-ids $INSTANCE_IDS
+
+# Check the response and output a success message
+if [ $? -eq 0 ]; then
+  echo "Instances stopped successfully: $INSTANCE_IDS"
+else
+  echo "Failed to stop instances: $INSTANCE_IDS"
+fi
+
+echo "Script execution complete."
