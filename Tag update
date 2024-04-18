@@ -1,0 +1,38 @@
+#This script will update the tags for perticular instance
+#!/bin/bash
+
+# Specify the region
+REGION="us-east-1"
+
+# Specify the key of the tag you want to update
+TAG_KEY="Update tag"
+
+# Specify the new value for the tag
+TAG_VALUE="non-production"
+
+# List of EC2 instance IDs to update the tag for
+INSTANCE_IDS=(
+  "i-0123456789abcdef0"
+  "i-abcdef0123456789"
+  # Add more instance IDs as needed
+)
+
+# Loop through each instance ID and update the tag
+for INSTANCE_ID in "${INSTANCE_IDS[@]}"; do
+  echo "Updating tag for instance: $INSTANCE_ID"
+
+  # Use AWS CLI to update the tag for the instance
+  # Include the --debug flag for more verbose output
+  aws ec2 create-tags --resources "$INSTANCE_ID" \
+                     --tags Key="$TAG_KEY",Value="$TAG_VALUE" \
+                     --region "$REGION" --debug
+
+  # Check if the update was successful
+  if [ $? -eq 0 ]; then
+    echo "Tag updated successfully for instance: $INSTANCE_ID"
+  else
+    echo "Failed to update tag for instance: $INSTANCE_ID"
+  fi
+done
+
+echo "Tag update process complete."
