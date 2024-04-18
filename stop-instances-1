@@ -1,0 +1,56 @@
+#this script will stop particular instances.
+#!/bin/bash
+
+# Specify the region
+REGION="us-east-1"
+
+# Specify the tag key and value to filter instances
+TAG_KEY="Environment"
+TAG_VALUE="non-production"
+
+# List of EC2 instance IDs to filter and potentially stop
+INSTANCE_IDS=(
+  "i-0123456789abcdef0"
+  "i-abcdef0123456789"
+  # Add more instance IDs as needed
+)
+
+# Initialize an array to hold the IDs of instances that match the tag criteria
+MATCHING_INSTANCE_IDS=()
+
+# Loop through the list of provided instance IDs
+for INSTANCE_ID in "${INSTANCE_IDS[@]}"; do
+  # Describe the instance and check if it has the specified tag
+  TAGS=$(aws ec2 describe-instances --region "$REGION" \
+        --instance-ids "$INSTANCE_ID" \
+        --query "Reservations[*].Instances[*].Tags" \
+        --output json)
+  
+  # Check if the specified tag key and value are present in the instance's tags
+  if echo "$TAGS" | grep -q "\"Key\": \"$TAG_KEY\", \"Value\": \"$TAG_VALUE\""; then
+    MATCHING_INSTANCE_IDS+=("$INSTANCE_ID")
+  fi
+done
+
+# Check if any matching instances were found
+if [ ${#MATCHING_INSTANCE_IDS[@]} -eq 0 ]; then
+  echo "No instances found with the tag $TAG_KEY=$TAG_VALUE in the provided list."
+  exit 0
+fi
+
+# Output the list of matching instance IDs
+echo "Instances with the tag $TAG_KEY=$TAG_VALUE from the provided list:"
+echo "${MATCHING_INSTANCE_IDS[@]}"
+
+# Stop the matching instances
+echo "Stopping matching instances..."
+aws ec2 stop-instances --region "$REGION" --instance-ids "${MATCHING_INSTANCE_IDS[@]}"
+
+# Check the response and output a success message
+if [ $? -eq 0 ]; then
+  echo "Matching instances stopped successfully: ${MATCHING_INSTANCE_IDS[@]}"
+else
+  echo "Failed to stop matching instances: ${MATCHING_INSTANCE_IDS[@]}"
+fi
+
+echo "Script execution complete."
