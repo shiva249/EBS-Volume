@@ -1,3 +1,5 @@
+#this script will update g2 volumes to gp3 volumes in multiple regions
+
 #!/bin/bash
 
 # List of regions to process
