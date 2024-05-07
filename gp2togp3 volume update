@@ -1,13 +1,16 @@
 #!/bin/bash
 
+# Define the AWS region
+region="your_region"
+
 # Fetch instance IDs containing the specified tag
-instance_ids=$(aws ec2 describe-instances --filters "Name=tag-value,Values=*a205832*" --query 'Reservations[*].Instances[*].InstanceId' --output text)
+instance_ids=$(aws ec2 describe-instances --filters "Name=tag-value,Values=*a205832*" --query 'Reservations[*].Instances[*].InstanceId' --output text --region $region)
 
 # Fetch EBS volume IDs attached to the instances
-volume_ids=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values=$instance_ids" --query 'Volumes[*].VolumeId' --output text)
+volume_ids=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values=$instance_ids" --query 'Volumes[*].VolumeId' --output text --region $region)
 
 # Fetch details of EBS volumes with gp2 volume type
-g2_volume_details=$(aws ec2 describe-volumes --volume-ids $volume_ids --query 'Volumes[?VolumeType==`gp2`].{VolumeId:VolumeId,Size:Size,State:State}')
+g2_volume_details=$(aws ec2 describe-volumes --volume-ids $volume_ids --query 'Volumes[?VolumeType==`gp2`].{VolumeId:VolumeId,Size:Size,State:State}' --output json --region $region)
 
 echo "G2 EBS Volumes:"
 echo "$g2_volume_details"
@@ -15,13 +18,13 @@ echo "$g2_volume_details"
 # Create snapshots of gp2 volumes
 for row in $(echo "${g2_volume_details}" | jq -c '.[]'); do
     volume_id=$(echo $row | jq -r '.VolumeId')
-    snapshot_id=$(aws ec2 create-snapshot --volume-id $volume_id --description "Snapshot for volume $volume_id" --query 'SnapshotId' --output text)
+    snapshot_id=$(aws ec2 create-snapshot --volume-id $volume_id --description "Snapshot for volume $volume_id" --query 'SnapshotId' --output text --region $region)
     echo "Created snapshot $snapshot_id for volume $volume_id"
 done
 
 # Modify volumes to gp3 type
 for row in $(echo "${g2_volume_details}" | jq -c '.[]'); do
     volume_id=$(echo $row | jq -r '.VolumeId')
-    aws ec2 modify-volume --volume-id $volume_id --volume-type gp3
+    aws ec2 modify-volume --volume-id $volume_id --volume-type gp3 --region $region
     echo "Modified volume $volume_id to gp3 type"
 done
