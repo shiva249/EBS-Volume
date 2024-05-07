@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# Define regions
+regions=("ap-south-1" "us-east-2" "us-west-2")
+
+# Function to fetch instance details
+get_instance_details() {
+    local region=$1
+    local instance_id=$2
+    aws ec2 describe-instances --region $region --instance-ids $instance_id --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`Name`].Value]' --output text
+}
+
+# Function to fetch volume details
+get_volume_details() {
+    local region=$1
+    local volume_id=$2
+    aws ec2 describe-volumes --region $region --volume-ids $volume_id --query 'Volumes[*].[VolumeId,VolumeType,Attachments[*].InstanceId]' --output text
+}
+
+# Function to fetch instance IDs with the specified tag value
+get_instance_ids() {
+    local region=$1
+    aws ec2 describe-instances --region $region --filters "Name=tag-value,Values=*a205832*" --query 'Reservations[*].Instances[*].InstanceId' --output text
+}
+
+# Function to check if instances have consistent gp2 volumes
+check_consistent_gp2_volumes() {
+    local instance_ids=$1
+    local consistent="true"
+
+    # Check volume types for the first instance
+    first_instance_volume_type=$(aws ec2 describe-volumes --region $region --filters "Name=attachment.instance-id,Values=${instance_ids[0]}" --query 'Volumes[?VolumeType==`gp2`].VolumeType' --output text)
+    
+    # If first instance has gp2 volumes
+    if [[ ! -z "$first_instance_volume_type" ]]; then
+        # Check volume types for the rest of the instances
+        for instance_id in "${instance_ids[@]}"; do
+            local volume_type=$(aws ec2 describe-volumes --region $region --filters "Name=attachment.instance-id,Values=$instance_id" --query 'Volumes[?VolumeType==`gp2`].VolumeType' --output text)
+            
+            # If any instance does not have gp2 volumes, set consistent to false and break
+            if [[ -z "$volume_type" ]]; then
+                consistent="false"
+                break
+            fi
+        done
+    else
+        consistent="false"
+    fi
+
+    echo "$consistent"
+}
+
+# Function to create snapshots for gp2 volumes
+create_snapshots() {
+    local region=$1
+    local volume_id=$2
+    local description=$3
+    aws ec2 create-snapshot --region $region --volume-id $volume_id --description "$description"
+}
+
+# Function to update volume type to gp3
+update_volume_type() {
+    local region=$1
+    local volume_id=$2
+    aws ec2 modify-volume --region $region --volume-id $volume_id --volume-type gp3
+}
+
+# Iterate over regions
+for region in "${regions[@]}"; do
+    echo "Region: $region"
+    
+    # Fetch instance IDs with the specified tag value
+    instance_ids=($(get_instance_ids $region))
+    
+    # Check if instances have consistent gp2 volumes
+    consistent_gp2_volumes=$(check_consistent_gp2_volumes "${instance_ids[@]}")
+    
+    if [ "$consistent_gp2_volumes" == "true" ]; then
+        echo "Instances in $region have consistent gp2 volumes"
+        echo "Instance ID | Instance Name | Volume ID | Volume Type"
+        for instance_id in "${instance_ids[@]}"; do
+            # Get instance details
+            instance_details=$(get_instance_details $region $instance_id)
+            instance_name=$(echo "$instance_details" | awk '{print $2}')
+            # Get volume IDs associated with the instance
+            volume_ids=$(aws ec2 describe-volumes --region $region --filters "Name=attachment.instance-id,Values=$instance_id" --query 'Volumes[?VolumeType==`gp2`].VolumeId' --output text)
+            for volume_id in $volume_ids; do
+                # Get volume details
+                volume_details=$(get_volume_details $region $volume_id)
+                volume_type=$(echo "$volume_details" | awk '{print $2}')
+                # Print instance and volume details
+                echo "$instance_id | $instance_name | $volume_id | $volume_type"
+                # Create snapshot for the volume
+                create_snapshots $region $volume_id "Snapshot for volume $volume_id"
+                # Update volume type to gp3
+                update_volume_type $region $volume_id
+            done
+        done
+    else
+        echo "Instances in $region do not have consistent gp2 volumes"
+    fi
+done
