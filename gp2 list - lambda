@@ -1,8 +1,10 @@
 import boto3
+import json
 
 def lambda_handler(event, context):
     # Define regions
     regions = ["ap-south-1", "us-east-2", "us-west-2"]
+    sns_topic_arn = 'arn:aws:sns:us-east-1:589662475172:gp2-volume'  # Replace with your SNS topic ARN
 
     def get_instance_details(region, instance_id):
         ec2 = boto3.client('ec2', region_name=region)
@@ -43,22 +45,33 @@ def lambda_handler(event, context):
             consistent = False
         return consistent
 
+    def send_sns_message(subject, message):
+        sns = boto3.client('sns')
+        response = sns.publish(
+            TopicArn=sns_topic_arn,
+            Subject="GP2 Volumes",
+            Message=message
+        )
+        return response
+
+    email_body = "GP2 Volumes has listed in the account - a205832"
+
     # Iterate over regions
     for region in regions:
-        print(f"Region: {region}")
+        email_body += f"Region: {region}\n"
         
         # Fetch instance IDs with the specified tag value
         instance_ids = get_instance_ids(region)
         if not instance_ids:
-            print(f"No instances found in region {region} with the specified tag value.")
+            email_body += f"No instances found in region {region} with the specified tag value.\n"
             continue
         
         # Check if instances have consistent gp2 volumes
         consistent_gp2_volumes = check_consistent_gp2_volumes(region, instance_ids)
         
         if consistent_gp2_volumes:
-            print(f"Instances in {region} have consistent gp2 volumes")
-            print("Instance ID | Instance Name | Volume ID | Volume Type")
+            email_body += f"Instances in {region} have consistent gp2 volumes\n"
+            email_body += "Instance ID | Instance Name | Volume ID | Volume Type\n"
             for instance_id in instance_ids:
                 # Get instance details
                 instance_id, instance_name = get_instance_details(region, instance_id)
@@ -72,9 +85,10 @@ def lambda_handler(event, context):
                     # Get volume details
                     volume_id, volume_type, _ = get_volume_details(region, volume_id)
                     
-                    # Print instance and volume details
-                    print(f"{instance_id} | {instance_name} | {volume_id} | {volume_type}")
+                    # Append volume details to email body
+                    email_body += f"{instance_id} | {instance_name} | {volume_id} | {volume_type}\n"
         else:
-            print(f"Instances in {region} do not have consistent gp2 volumes")
+            email_body += f"Instances in {region} do not have consistent gp2 volumes\n"
 
-# For AWS Lambda, the handler function name is defined as "lambda_handler" in this example.
+    # Send email using SNS
+    send_sns_message("GP2 Volume Check", email_body)
