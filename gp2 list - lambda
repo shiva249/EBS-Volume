@@ -1,0 +1,80 @@
+import boto3
+
+def lambda_handler(event, context):
+    # Define regions
+    regions = ["ap-south-1", "us-east-2", "us-west-2"]
+
+    def get_instance_details(region, instance_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_instances(InstanceIds=[instance_id])
+        instance = response['Reservations'][0]['Instances'][0]
+        instance_name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'No Name')
+        return instance_id, instance_name
+
+    def get_volume_details(region, volume_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(VolumeIds=[volume_id])
+        volume = response['Volumes'][0]
+        volume_type = volume['VolumeType']
+        instance_id = volume['Attachments'][0]['InstanceId']
+        return volume_id, volume_type, instance_id
+
+    def get_instance_ids(region):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_instances(Filters=[{'Name': 'tag-value', 'Values': ['*a205832*']}])
+        instance_ids = [instance['InstanceId'] for reservation in response['Reservations'] for instance in reservation['Instances']]
+        return instance_ids
+
+    def check_consistent_gp2_volumes(region, instance_ids):
+        if not instance_ids:
+            return False
+        ec2 = boto3.client('ec2', region_name=region)
+        consistent = True
+        first_instance_id = instance_ids[0]
+        response = ec2.describe_volumes(Filters=[{'Name': 'attachment.instance-id', 'Values': [first_instance_id]}])
+        first_instance_volumes = response['Volumes']
+        if all(volume['VolumeType'] == 'gp2' for volume in first_instance_volumes):
+            for instance_id in instance_ids:
+                response = ec2.describe_volumes(Filters=[{'Name': 'attachment.instance-id', 'Values': [instance_id]}])
+                if not all(volume['VolumeType'] == 'gp2' for volume in response['Volumes']):
+                    consistent = False
+                    break
+        else:
+            consistent = False
+        return consistent
+
+    # Iterate over regions
+    for region in regions:
+        print(f"Region: {region}")
+        
+        # Fetch instance IDs with the specified tag value
+        instance_ids = get_instance_ids(region)
+        if not instance_ids:
+            print(f"No instances found in region {region} with the specified tag value.")
+            continue
+        
+        # Check if instances have consistent gp2 volumes
+        consistent_gp2_volumes = check_consistent_gp2_volumes(region, instance_ids)
+        
+        if consistent_gp2_volumes:
+            print(f"Instances in {region} have consistent gp2 volumes")
+            print("Instance ID | Instance Name | Volume ID | Volume Type")
+            for instance_id in instance_ids:
+                # Get instance details
+                instance_id, instance_name = get_instance_details(region, instance_id)
+                
+                # Get volume IDs associated with the instance
+                ec2 = boto3.client('ec2', region_name=region)
+                response = ec2.describe_volumes(Filters=[{'Name': 'attachment.instance-id', 'Values': [instance_id]}])
+                volume_ids = [volume['VolumeId'] for volume in response['Volumes'] if volume['VolumeType'] == 'gp2']
+                
+                for volume_id in volume_ids:
+                    # Get volume details
+                    volume_id, volume_type, _ = get_volume_details(region, volume_id)
+                    
+                    # Print instance and volume details
+                    print(f"{instance_id} | {instance_name} | {volume_id} | {volume_type}")
+        else:
+            print(f"Instances in {region} do not have consistent gp2 volumes")
+
+# For AWS Lambda, the handler function name is defined as "lambda_handler" in this example.
