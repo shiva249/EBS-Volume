@@ -1,0 +1,130 @@
+# Define regions
+$regions = @("ap-south-1", "us-east-2", "us-west-2")
+
+# Function to fetch instance details
+function Get-InstanceDetails {
+    param (
+        [string]$region,
+        [string]$instanceId
+    )
+    aws ec2 describe-instances --region $region --instance-ids $instanceId --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`"Name`"].Value]' --output text
+}
+
+# Function to fetch volume details
+function Get-VolumeDetails {
+    param (
+        [string]$region,
+        [string]$volumeId
+    )
+    aws ec2 describe-volumes --region $region --volume-ids $volumeId --query 'Volumes[*].[VolumeId,VolumeType,Attachments[*].InstanceId]' --output text
+}
+
+# Function to fetch instance IDs with the specified tag value
+function Get-InstanceIds {
+    param (
+        [string]$region
+    )
+    aws ec2 describe-instances --region $region --filters "Name=tag-value,Values=*a205832*" --query 'Reservations[*].Instances[*].InstanceId' --output text
+}
+
+# Function to check if instances have consistent gp2 volumes
+function Check-ConsistentGp2Volumes {
+    param (
+        [array]$instanceIds,
+        [string]$region
+    )
+    $consistent = $true
+
+    # Check volume types for the first instance
+    $firstInstanceVolumeType = aws ec2 describe-volumes --region $region --filters "Name=attachment.instance-id,Values=$($instanceIds[0])" --query 'Volumes[?VolumeType==`"gp2`"].VolumeType' --output text
+    
+    # If first instance has gp2 volumes
+    if ($firstInstanceVolumeType) {
+        # Check volume types for the rest of the instances
+        foreach ($instanceId in $instanceIds) {
+            $volumeType = aws ec2 describe-volumes --region $region --filters "Name=attachment.instance-id,Values=$instanceId" --query 'Volumes[?VolumeType==`"gp2`"].VolumeType' --output text
+            
+            # If any instance does not have gp2 volumes, set consistent to false and break
+            if (-not $volumeType) {
+                $consistent = $false
+                break
+            }
+        }
+    } else {
+        $consistent = $false
+    }
+
+    return $consistent
+}
+
+# Function to create snapshots for gp2 volumes
+function Create-Snapshots {
+    param (
+        [string]$region,
+        [string]$volumeId,
+        [string]$description
+    )
+    aws ec2 create-snapshot --region $region --volume-id $volumeId --description $description
+}
+
+# Function to wait for snapshot completion
+function Wait-SnapshotCompletion {
+    param (
+        [string]$region,
+        [string]$snapshotId
+    )
+    while ($true) {
+        $status = aws ec2 describe-snapshots --region $region --snapshot-ids $snapshotId --query 'Snapshots[*].State' --output text
+        if ($status -eq "completed") {
+            break
+        } else {
+            Write-Output "Waiting for snapshot $snapshotId to complete..."
+            Start-Sleep -Seconds 300
+        }
+    }
+}
+
+# Function to update volume type to gp3
+function Update-VolumeType {
+    param (
+        [string]$region,
+        [string]$volumeId
+    )
+    aws ec2 modify-volume --region $region --volume-id $volumeId --volume-type gp3
+}
+
+# Iterate over regions
+foreach ($region in $regions) {
+    Write-Output "Region: $region"
+    
+    # Fetch instance IDs with the specified tag value
+    $instanceIds = Get-InstanceIds -region $region -split "`n"
+    
+    # Check if instances have consistent gp2 volumes
+    $consistentGp2Volumes = Check-ConsistentGp2Volumes -instanceIds $instanceIds -region $region
+    
+    if ($consistentGp2Volumes) {
+        Write-Output "Instances in $region have consistent gp2 volumes"
+        Write-Output "Instance ID | Instance Name | Volume ID | Volume Type"
+        foreach ($instanceId in $instanceIds) {
+            # Get instance details
+            $instanceDetails = Get-InstanceDetails -region $region -instanceId $instanceId
+            $instanceName = $instanceDetails -split "`n" | Select-Object -First 1
+            # Get volume IDs associated with the instance
+            $volumeIds = aws ec2 describe-volumes --region $region --filters "Name=attachment.instance-id,Values=$instanceId" --query 'Volumes[?VolumeType==`"gp2`"].VolumeId' --output text -split "`n"
+            foreach ($volumeId in $volumeIds) {
+                # Get volume details
+                $volumeDetails = Get-VolumeDetails -region $region -volumeId $volumeId
+                $volumeType = $volumeDetails -split "`n" | Select-Object -First 1
+                # Print instance and volume details
+                Write-Output "$instanceId | $instanceName | $volumeId | $volumeType"
+                # Create snapshot for the volume
+                Create-Snapshots -region $region -volumeId $volumeId -description "Snapshot for volume $volumeId"
+                # Update volume type to gp3
+                Update-VolumeType -region $region -volumeId $volumeId
+            }
+        }
+    } else {
+        Write-Output "Instances in $region do not have consistent gp2 volumes"
+    }
+}
