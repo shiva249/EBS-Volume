@@ -1,0 +1,73 @@
+import boto3
+from openpyxl import Workbook
+
+def lambda_handler(event, context):
+    # Define regions
+    regions = ["us-east-1", "us-east-2", "eu-west-1"]
+    sns_topic_arn = 'arn:aws:sns:us-east-1:589662475172:gp2-volume'  # Replace with your SNS topic ARN
+
+    def get_instance_details(region, instance_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_instances(InstanceIds=[instance_id])
+        instance = response['Reservations'][0]['Instances'][0]
+        instance_name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'No Name')
+        return instance_id, instance_name
+
+    def get_gp2_volumes(region):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(Filters=[{'Name': 'volume-type', 'Values': ['gp2']}])
+        return response['Volumes']
+
+    email_body = "GP2 Volumes listed in the account\n\n"
+
+    # Create a new Excel workbook and sheet
+    wb = Workbook()
+    ws = wb.active
+
+    # Add headers to the Excel sheet
+    ws.append(["Region", "Instance ID", "Instance Name", "Volume ID", "Volume Type"])
+
+    # Iterate over regions
+    for region in regions:
+        # Get gp2 volume details in the region
+        gp2_volumes = get_gp2_volumes(region)
+        
+        for volume in gp2_volumes:
+            volume_id = volume['VolumeId']
+            volume_type = volume['VolumeType']
+            instance_id = volume['Attachments'][0]['InstanceId'] if volume['Attachments'] else 'Unattached'
+            
+            # Get instance details if the volume is attached
+            if instance_id != 'Unattached':
+                instance_id, instance_name = get_instance_details(region, instance_id)
+            else:
+                instance_name = 'Unattached'
+            
+            # Append volume details to the Excel sheet
+            ws.append([region, instance_id, instance_name, volume_id, volume_type])
+
+    # Save the workbook to a BytesIO object
+    excel_file = BytesIO()
+    wb.save(excel_file)
+    excel_file.seek(0)
+
+    # Send email using SNS with the Excel file as an attachment
+    send_sns_message_with_attachment("GP2 Volume Check", email_body, excel_file, "gp2_volumes.xlsx", sns_topic_arn)
+
+def send_sns_message_with_attachment(subject, message, attachment, attachment_name, topic_arn):
+    sns = boto3.client('sns')
+    response = sns.publish(
+        TopicArn=topic_arn,
+        Subject=subject,
+        Message=message,
+        MessageStructure='string',
+        MessageAttributes={},
+        # Include the attachment
+        MessageAttributes={
+            'attachment': {
+                'DataType': 'Binary',
+                'BinaryValue': attachment.read()
+            }
+        }
+    )
+    return response
