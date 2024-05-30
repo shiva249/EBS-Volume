@@ -1,0 +1,61 @@
+import boto3
+import json
+
+def lambda_handler(event, context):
+    # Define regions
+    regions = ["us-east-1", "us-east-2", "eu-west-1"]
+    sns_topic_arn = 'arn:aws:sns:us-east-1:589662475172:gp2-volume'  # Replace with your SNS topic ARN
+
+    def get_instance_details(region, instance_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_instances(InstanceIds=[instance_id])
+        instance = response['Reservations'][0]['Instances'][0]
+        instance_name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'No Name')
+        return instance_id, instance_name
+
+    def get_gp2_volumes(region):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(Filters=[{'Name': 'volume-type', 'Values': ['gp2']}])
+        return response['Volumes']
+
+    def send_sns_message(subject, message):
+        sns = boto3.client('sns')
+        response = sns.publish(
+            TopicArn=sns_topic_arn,
+            Subject=subject,
+            Message=message
+        )
+        return response
+
+    email_body = "GP2 Volumes listed in the account\n\n"
+
+    # Iterate over regions
+    for region in regions:
+        email_body += f"Region: {region}\n"
+        
+        # Get gp2 volume details in the region
+        gp2_volumes = get_gp2_volumes(region)
+        
+        if not gp2_volumes:
+            email_body += "No gp2 volumes found.\n"
+            continue
+        
+        email_body += "Instance ID | Instance Name | Volume ID | Volume Type\n"
+        for volume in gp2_volumes:
+            volume_id = volume['VolumeId']
+            volume_type = volume['VolumeType']
+            instance_id = volume['Attachments'][0]['InstanceId'] if volume['Attachments'] else 'Unattached'
+            
+            # Get instance details if the volume is attached
+            if instance_id != 'Unattached':
+                instance_id, instance_name = get_instance_details(region, instance_id)
+            else:
+                instance_name = 'Unattached'
+            
+            # Append volume details to email body
+            email_body += f"{instance_id} | {instance_name} | {volume_id} | {volume_type}\n"
+        
+        email_body += "\n"
+
+    # Send email using SNS
+    send_sns_message("GP2 Volume Check", email_body)
