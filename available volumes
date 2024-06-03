@@ -1,0 +1,61 @@
+import boto3
+import json
+
+def lambda_handler(event, context):
+    # Define regions
+    regions = ["ap-south-1", "us-east-2", "us-west-2"]
+    sns_topic_arn = 'arn:aws:sns:us-east-1:589662475172:gp2-volume'  # Replace with your SNS topic ARN
+
+    def get_instance_details(region, instance_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_instances(InstanceIds=[instance_id])
+        instance = response['Reservations'][0]['Instances'][0]
+        instance_name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'No Name')
+        return instance_id, instance_name
+
+    def get_volume_details(region, volume_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(VolumeIds=[volume_id])
+        volume = response['Volumes'][0]
+        volume_type = volume['VolumeType']
+        instance_id = volume['Attachments'][0]['InstanceId'] if volume['Attachments'] else 'Not Attached'
+        return volume_id, volume_type, instance_id
+
+    def get_available_volumes(region):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(Filters=[{'Name': 'status', 'Values': ['available']}])
+        return response['Volumes']
+
+    def send_sns_message(subject, message):
+        sns = boto3.client('sns')
+        response = sns.publish(
+            TopicArn=sns_topic_arn,
+            Subject=subject,
+            Message=message
+        )
+        return response
+
+    email_body = "List of available EBS volumes in the specified regions:\n"
+
+    # Iterate over regions
+    for region in regions:
+        email_body += f"\nRegion: {region}\n"
+        
+        # Fetch available volumes
+        available_volumes = get_available_volumes(region)
+        if not available_volumes:
+            email_body += f"No available volumes found in region {region}.\n"
+            continue
+        
+        email_body += "Volume ID | Volume Type | Instance ID (if attached)\n"
+        for volume in available_volumes:
+            volume_id, volume_type, instance_id = get_volume_details(region, volume['VolumeId'])
+            email_body += f"{volume_id} | {volume_type} | {instance_id}\n"
+
+    # Send email using SNS
+    send_sns_message("Available EBS Volumes", email_body)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('SNS message sent successfully!')
+    }
