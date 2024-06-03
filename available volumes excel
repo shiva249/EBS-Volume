@@ -1,0 +1,86 @@
+import boto3
+import json
+import pandas as pd
+from botocore.exceptions import ClientError
+
+def lambda_handler(event, context):
+    # Define regions
+    regions = ["ap-south-1", "us-east-2", "us-west-2"]
+    sns_topic_arn = 'arn:aws:sns:us-east-1:589662475172:gp2-volume'  # Replace with your SNS topic ARN
+
+    def get_instance_details(region, instance_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_instances(InstanceIds=[instance_id])
+        instance = response['Reservations'][0]['Instances'][0]
+        instance_name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'No Name')
+        return instance_id, instance_name
+
+    def get_volume_details(region, volume_id):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(VolumeIds=[volume_id])
+        volume = response['Volumes'][0]
+        volume_type = volume['VolumeType']
+        instance_id = volume['Attachments'][0]['InstanceId'] if volume['Attachments'] else 'Not Attached'
+        return volume_id, volume_type, instance_id
+
+    def get_available_volumes(region):
+        ec2 = boto3.client('ec2', region_name=region)
+        response = ec2.describe_volumes(Filters=[{'Name': 'status', 'Values': ['available']}])
+        return response['Volumes']
+
+    def send_sns_message_with_attachment(subject, message, attachment_data):
+        sns = boto3.client('sns')
+        try:
+            response = sns.publish(
+                TopicArn=sns_topic_arn,
+                Subject=subject,
+                Message=message,
+                MessageStructure='string',
+                MessageAttributes={
+                    'email': {
+                        'DataType': 'String',
+                        'StringValue': 'json'
+                    },
+                    'attachment': {
+                        'DataType': 'Binary',
+                        'BinaryValue': attachment_data
+                    }
+                }
+            )
+            print("SNS message sent successfully!")
+            return response
+        except ClientError as e:
+            print("SNS message sending failed:", e)
+            raise
+
+    # Create DataFrame to store volume details
+    volume_data = []
+
+    # Iterate over regions
+    for region in regions:
+        # Fetch available volumes
+        available_volumes = get_available_volumes(region)
+        for volume in available_volumes:
+            volume_id, volume_type, instance_id = get_volume_details(region, volume['VolumeId'])
+            volume_data.append({'Region': region, 'Volume ID': volume_id, 'Volume Type': volume_type, 'Instance ID': instance_id})
+
+    # Create DataFrame from volume details
+    df = pd.DataFrame(volume_data)
+
+    # Save DataFrame to Excel
+    excel_output = "/tmp/available_volumes.xlsx"
+    df.to_excel(excel_output, index=False)
+
+    # Read Excel file as binary
+    with open(excel_output, 'rb') as f:
+        excel_data = f.read()
+
+    # Send email using SNS with Excel attached
+    sns_subject = "Available EBS Volumes"
+    sns_message = "List of available EBS volumes in specified regions."
+    send_sns_message_with_attachment(sns_subject, sns_message, excel_data)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('SNS message sent successfully!')
+    }
