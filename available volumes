@@ -19,7 +19,8 @@ def lambda_handler(event, context):
         volume = response['Volumes'][0]
         volume_type = volume['VolumeType']
         instance_id = volume['Attachments'][0]['InstanceId'] if volume['Attachments'] else 'Not Attached'
-        return volume_id, volume_type, instance_id
+        creation_date = volume['CreateTime'].strftime('%Y-%m-%d %H:%M:%S')
+        return volume_id, volume_type, instance_id, creation_date
 
     def get_available_volumes(region):
         ec2 = boto3.client('ec2', region_name=region)
@@ -47,10 +48,10 @@ def lambda_handler(event, context):
             email_body += f"No available volumes found in region {region}.\n"
             continue
         
-        email_body += "Volume ID | Volume Type | Instance ID (if attached)\n"
+        email_body += "Volume ID | Volume Type | Instance ID (if attached) | Creation Date\n"
         for volume in available_volumes:
-            volume_id, volume_type, instance_id = get_volume_details(region, volume['VolumeId'])
-            email_body += f"{volume_id} | {volume_type} | {instance_id}\n"
+            volume_id, volume_type, instance_id, creation_date = get_volume_details(region, volume['VolumeId'])
+            email_body += f"{volume_id} | {volume_type} | {instance_id} | {creation_date}\n"
 
     # Send email using SNS
     send_sns_message("Available EBS Volumes", email_body)
