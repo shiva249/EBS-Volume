@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Set AWS region
+AWS_REGION="us-west-2"
+
+# Define output file
+OUTPUT_FILE="ebs_snapshots.csv"
+
+# Get the list of snapshots with creation dates
+echo "SnapshotID,VolumeID,StartTime" > $OUTPUT_FILE
+aws ec2 describe-snapshots --region $AWS_REGION --query 'Snapshots[*].[SnapshotId,VolumeId,StartTime]' --output text | while read line; do
+    SNAPSHOT_ID=$(echo $line | awk '{print $1}')
+    VOLUME_ID=$(echo $line | awk '{print $2}')
+    START_TIME=$(echo $line | awk '{print $3}')
+
+    # Append the details to the output file
+    echo "$SNAPSHOT_ID,$VOLUME_ID,$START_TIME" >> $OUTPUT_FILE
+done
+
+# Notify user
+echo "EBS snapshots list with creation dates has been saved to $OUTPUT_FILE"
