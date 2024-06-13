@@ -1,0 +1,41 @@
+import boto3
+
+def lambda_handler(event, context):
+    regions = ["us-east-2", "eu-west-1"]
+    policy_name = "DailySnapshotPolicy"
+    description = "Daily snapshots with 7-day retention"
+    target_tag_key = "Backup"
+    target_tag_value = "true"
+    schedule_name = "DailySnapshots"
+    retention_days = 7
+
+    # Get AWS account ID
+    sts_client = boto3.client('sts')
+    account_id = sts_client.get_caller_identity()["Account"]
+    role_arn = f"arn:aws:iam::{account_id}:role/AWSDataLifecycleManagerDefaultRole"
+    
+    for region in regions:
+        dlm_client = boto3.client('dlm', region_name=region)
+        
+        response = dlm_client.create_lifecycle_policy(
+            ExecutionRoleArn=role_arn,
+            Description=description,
+            State='ENABLED',
+            PolicyDetails={
+                'ResourceTypes': ['VOLUME'],
+                'TargetTags': [{'Key': target_tag_key, 'Value': target_tag_value}],
+                'Schedules': [{
+                    'Name': schedule_name,
+                    'CreateRule': {'Interval': 24, 'IntervalUnit': 'HOURS'},
+                    'RetainRule': {'Count': retention_days}
+                }]
+            }
+        )
+        
+        policy_id = response['PolicyId']
+        print(f"Created lifecycle policy in region {region} with policy ID {policy_id}")
+    
+    return {
+        'statusCode': 200,
+        'body': "Lifecycle policies have been created."
+    }
