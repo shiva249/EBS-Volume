@@ -1,0 +1,32 @@
+import boto3
+
+def lambda_handler(event, context):
+    regions = ["us-east-2", "eu-west-1"]
+    tag_key = "Backup"
+    tag_value = "true"
+    
+    # Get AWS account ID
+    sts_client = boto3.client('sts')
+    account_id = sts_client.get_caller_identity()["Account"]
+    
+    for region in regions:
+        ec2_client = boto3.client('ec2', region_name=region)
+        
+        # Describe all volumes in the region
+        response = ec2_client.describe_volumes()
+        volumes = response['Volumes']
+        
+        for volume in volumes:
+            volume_id = volume['VolumeId']
+            
+            # Create tags for the volume
+            ec2_client.create_tags(
+                Resources=[volume_id],
+                Tags=[{'Key': tag_key, 'Value': tag_value}]
+            )
+            print(f"Tagged volume {volume_id} in region {region} with {tag_key}={tag_value}")
+    
+    return {
+        'statusCode': 200,
+        'body': f"EBS volumes have been tagged with {tag_key}={tag_value}"
+    }
