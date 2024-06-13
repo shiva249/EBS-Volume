@@ -82,3 +82,51 @@ done
 
 # Notify user
 echo "EBS snapshots list with creation dates has been saved to $OUTPUT_FILE"
+---------
+print between 2019 and 2022
+
+#!/bin/bash
+
+# Define regions to check
+REGIONS=("us-east-2" "eu-west-1")
+
+# Define output file
+OUTPUT_FILE="ebs_snapshots.csv"
+
+# Initialize the output file with a header
+echo "Region,SnapshotID,VolumeID,StartTime" > $OUTPUT_FILE
+
+# Get your AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+
+# Function to check if a date is within the range
+is_date_in_range() {
+    DATE=$1
+    START_DATE="2019-01-01T00:00:00Z"
+    END_DATE="2022-12-31T23:59:59Z"
+
+    if [[ "$DATE" > "$START_DATE" && "$DATE" < "$END_DATE" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+# Loop through each region and fetch snapshots
+for REGION in "${REGIONS[@]}"; do
+    echo "Checking snapshots in region: $REGION"
+    aws ec2 describe-snapshots --region $REGION --owner-ids $ACCOUNT_ID --query 'Snapshots[?State==`completed`].[SnapshotId,VolumeId,StartTime]' --output text | while read line; do
+        SNAPSHOT_ID=$(echo $line | awk '{print $1}')
+        VOLUME_ID=$(echo $line | awk '{print $2}')
+        START_TIME=$(echo $line | awk '{print $3}')
+        
+        # Check if the snapshot creation date is within the specified range
+        if [ $(is_date_in_range $START_TIME) -eq 1 ]; then
+            # Append the details to the output file
+            echo "$REGION,$SNAPSHOT_ID,$VOLUME_ID,$START_TIME" >> $OUTPUT_FILE
+        fi
+    done
+done
+
+# Notify user
+echo "EBS snapshots created between 2019 and 2022 have been saved to $OUTPUT_FILE"
