@@ -182,3 +182,73 @@ done
 
 # Notify user
 echo "EBS snapshots created between 2019 and 2022 have been saved to $OUTPUT_FILE and deleted."
+
+
+------------------------------------------------------------------------------
+
+AMIs and snapshots
+
+#!/bin/bash
+
+# Define the date range
+START_DATE="2019-01-01"
+END_DATE="2022-12-31"
+
+# Define the output file
+OUTPUT_FILE="ami_and_snapshots.csv"
+
+# Initialize the output file with a header
+echo "Region,ImageID,Name,CreationDate,SnapshotID,VolumeID,StartTime" > $OUTPUT_FILE
+
+# Get your AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+
+# Define the regions to check
+REGIONS=("us-east-1")
+
+# Function to check if a date is within the range
+is_date_in_range() {
+    DATE=$1
+    START_DATE="2019-01-01T00:00:00Z"
+    END_DATE="2022-12-31T23:59:59Z"
+
+    if [[ "$DATE" > "$START_DATE" && "$DATE" < "$END_DATE" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+# Loop through each region
+for REGION in "${REGIONS[@]}"; do
+    echo "Processing region: $REGION"
+    
+    # Get the list of AMIs created by you in the specified date range
+    AMIS=$(aws ec2 describe-images --region $REGION --owners self --query "Images[?CreationDate>='$START_DATE' && CreationDate<='$END_DATE'].[ImageId,Name,CreationDate]" --output json)
+    
+    # Iterate over each AMI
+    echo "$AMIS" | jq -c '.[]' | while read ami; do
+        IMAGE_ID=$(echo $ami | jq -r '.[0]')
+        NAME=$(echo $ami | jq -r '.[1]')
+        CREATION_DATE=$(echo $ami | jq -r '.[2]')
+        
+        # Get the snapshots associated with the AMI
+        SNAPSHOTS=$(aws ec2 describe-snapshots --region $REGION --owner-ids $ACCOUNT_ID --filters Name=description,Values="*${IMAGE_ID}*" --query "Snapshots[?StartTime>='$START_DATE' && StartTime<='$END_DATE'].[SnapshotId,VolumeId,StartTime]" --output json)
+        
+        # Iterate over each snapshot and write to the output file
+        echo "$SNAPSHOTS" | jq -c '.[]' | while read snapshot; do
+            SNAPSHOT_ID=$(echo $snapshot | jq -r '.[0]')
+            VOLUME_ID=$(echo $snapshot | jq -r '.[1]')
+            START_TIME=$(echo $snapshot | jq -r '.[2]')
+            
+            # Check if the snapshot creation date is within the specified range
+            if [ $(is_date_in_range $START_TIME) -eq 1 ]; then
+                echo "$REGION,$IMAGE_ID,$NAME,$CREATION_DATE,$SNAPSHOT_ID,$VOLUME_ID,$START_TIME" >> $OUTPUT_FILE
+            fi
+        done
+    done
+done
+
+# Notify the user
+echo "AMIs and associated snapshots created between 2019 and 2022 have been saved to $OUTPUT_FILE"
+
