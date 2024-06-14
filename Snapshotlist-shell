@@ -204,7 +204,7 @@ echo "Region,ImageID,Name,CreationDate,SnapshotID,VolumeID,StartTime" > $OUTPUT_
 ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
 
 # Define the regions to check
-REGIONS=("us-east-1")
+REGIONS=("us-east-2" "eu-west-1")
 
 # Function to check if a date is within the range
 is_date_in_range() {
@@ -224,23 +224,14 @@ for REGION in "${REGIONS[@]}"; do
     echo "Processing region: $REGION"
     
     # Get the list of AMIs created by you in the specified date range
-    AMIS=$(aws ec2 describe-images --region $REGION --owners self --query "Images[?CreationDate>='$START_DATE' && CreationDate<='$END_DATE'].[ImageId,Name,CreationDate]" --output json)
-    
-    # Iterate over each AMI
-    echo "$AMIS" | jq -c '.[]' | while read ami; do
-        IMAGE_ID=$(echo $ami | jq -r '.[0]')
-        NAME=$(echo $ami | jq -r '.[1]')
-        CREATION_DATE=$(echo $ami | jq -r '.[2]')
+    aws ec2 describe-images --region $REGION --owners self --query "Images[?CreationDate>='${START_DATE}T00:00:00Z' && CreationDate<='${END_DATE}T23:59:59Z'].[ImageId,Name,CreationDate]" --output text | \
+    while read -r IMAGE_ID NAME CREATION_DATE; do
+        # Remove quotes from NAME
+        NAME=$(echo $NAME | sed 's/^"//;s/"$//')
         
         # Get the snapshots associated with the AMI
-        SNAPSHOTS=$(aws ec2 describe-snapshots --region $REGION --owner-ids $ACCOUNT_ID --filters Name=description,Values="*${IMAGE_ID}*" --query "Snapshots[?StartTime>='$START_DATE' && StartTime<='$END_DATE'].[SnapshotId,VolumeId,StartTime]" --output json)
-        
-        # Iterate over each snapshot and write to the output file
-        echo "$SNAPSHOTS" | jq -c '.[]' | while read snapshot; do
-            SNAPSHOT_ID=$(echo $snapshot | jq -r '.[0]')
-            VOLUME_ID=$(echo $snapshot | jq -r '.[1]')
-            START_TIME=$(echo $snapshot | jq -r '.[2]')
-            
+        aws ec2 describe-snapshots --region $REGION --owner-ids $ACCOUNT_ID --filters Name=description,Values="*${IMAGE_ID}*" --query "Snapshots[?StartTime>='${START_DATE}T00:00:00Z' && StartTime<='${END_DATE}T23:59:59Z'].[SnapshotId,VolumeId,StartTime]" --output text | \
+        while read -r SNAPSHOT_ID VOLUME_ID START_TIME; do
             # Check if the snapshot creation date is within the specified range
             if [ $(is_date_in_range $START_TIME) -eq 1 ]; then
                 echo "$REGION,$IMAGE_ID,$NAME,$CREATION_DATE,$SNAPSHOT_ID,$VOLUME_ID,$START_TIME" >> $OUTPUT_FILE
@@ -251,4 +242,3 @@ done
 
 # Notify the user
 echo "AMIs and associated snapshots created between 2019 and 2022 have been saved to $OUTPUT_FILE"
-
