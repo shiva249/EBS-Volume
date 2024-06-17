@@ -1,0 +1,357 @@
+provider "aws" {
+  region = "us-west-2" # Update as necessary
+}
+
+variable "asset_insight_id" {
+  description = "hi"
+  type        = string
+  default     = "2022"
+}
+
+variable "financial_identifier" {
+  description = "hi"
+  type        = string
+}
+
+variable "environment_type" {
+  description = "hi"
+  type        = string
+  validation {
+    condition = contains(["dev", "test", "qa"], var.environment_type)
+    error_message = "Environment type must be one of dev, test, or qa."
+  }
+}
+
+variable "email_address" {
+  description = "hi"
+  type        = string
+}
+
+variable "edd_instance_type" {
+  description = "hi"
+  type        = string
+  default     = "t3.micro"
+  validation {
+    condition = contains(["t3.micro", "c5.micro", "t2.media"], var.edd_instance_type)
+    error_message = "EDD Instance type must be one of t3.micro, c5.micro, or t2.media."
+  }
+}
+
+variable "ebs_size" {
+  description = "hi"
+  type        = number
+  default     = 32
+  validation {
+    condition = var.ebs_size >= 32
+    error_message = "EBS Size must be at least 32."
+  }
+}
+
+variable "min_edd_node_count" {
+  description = "hi"
+  type        = number
+  default     = 2
+}
+
+variable "max_edd_node_count" {
+  description = "hi"
+  type        = number
+  default     = 4
+}
+
+variable "desired_edd_node_count" {
+  description = "hi"
+  type        = number
+  default     = 2
+  validation {
+    condition = var.desired_edd_node_count >= 2
+    error_message = "Desired EDD Node Count must be at least 2."
+  }
+}
+
+variable "service_environment" {
+  description = "hi"
+  type        = string
+}
+
+variable "product_name" {
+  description = "hi"
+  type        = string
+  default     = "gt-servlet"
+}
+
+variable "alert_email_group" {
+  description = "hi"
+  type        = string
+}
+
+variable "lb_cert_arn" {
+  description = "hi"
+  type        = string
+}
+
+variable "project_name" {
+  description = "hi"
+  type        = string
+}
+
+variable "ami_id" {
+  description = "hi"
+  type        = string
+}
+
+variable "hosted_zone_name" {
+  description = "hi"
+  type        = string
+}
+
+variable "web_world_sg" {
+  description = "hi"
+  type        = string
+}
+
+variable "from_bastion_sshg" {
+  description = "hi"
+  type        = string
+}
+
+variable "web_corp_sg" {
+  description = "hi"
+  type        = string
+}
+
+variable "rds_sg" {
+  description = "hi"
+  type        = string
+}
+
+variable "global_deny_policy" {
+  description = "hi"
+  type        = string
+  default     = "true"
+}
+
+variable "public_subnet_ids" {
+  description = "List of public subnet IDs"
+  type        = list(string)
+}
+
+variable "private_subnet_ids" {
+  description = "List of private subnet IDs"
+  type        = list(string)
+}
+
+variable "vpc_id" {
+  description = "VPC ID"
+  type        = string
+}
+
+resource "aws_autoscaling_group" "edd_asg" {
+  launch_configuration = aws_launch_configuration.edd_launch_config.id
+  min_size             = var.min_edd_node_count
+  max_size             = var.max_edd_node_count
+  desired_capacity     = var.desired_edd_node_count
+  vpc_zone_identifier  = var.private_subnet_ids
+
+  health_check_type         = "ELB"
+  health_check_grace_period = 240
+
+  tag {
+    key                 = "tr:financial-identifier"
+    value               = var.financial_identifier
+    propagate_at_launch = true
+  }
+  
+  tag {
+    key                 = "tr:application-asset-insight-id"
+    value               = var.asset_insight_id
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "tr:environment-type"
+    value               = var.environment_type
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "tr:resource-owner"
+    value               = var.email_address
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "name"
+    value               = "a${var.asset_insight_id}-${var.product_name}-${var.service_environment}"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "service"
+    value               = "gt-web"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "hera-autoscaling-group"
+    value               = "a${var.asset_insight_id}-${var.product_name}-${var.service_environment}"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Environment"
+    value               = var.environment_type
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "service-environment"
+    value               = var.service_environment
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "asset-insight-prefix"
+    value               = "a${var.asset_insight_id}"
+    propagate_at_launch = true
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "max_instance_in_use" {
+  alarm_description  = "hi"
+  namespace          = "AWS/AutoScaling"
+  metric_name        = "GroupInServiceInstances"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = "8"
+  period             = "60"
+  statistic          = "Sum"
+  threshold          = var.max_edd_node_count
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.edd_asg.name
+  }
+
+  alarm_actions = [
+    "arn:aws:sns:us-west-2:123456789012:MyTopic" # Replace with your SNS topic ARN
+  ]
+}
+
+resource "aws_security_group" "edd_sg" {
+  name_prefix   = "edd-sg"
+  description   = "Security group for EDD"
+  vpc_id        = var.vpc_id
+
+  ingress {
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    security_groups = [aws_security_group.edd_web_lb_sg.id]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+  }
+
+  egress {
+    from_port   = 3306
+    to_port     = 3306
+    protocol    = "tcp"
+    security_groups = [var.rds_sg]
+  }
+
+  tags = {
+    Des                      = "desc"
+    "translate:TranslateText" = var.financial_identifier
+    AssetInsightId           = var.asset_insight_id
+    environment              = var.environment_type
+    "tr: resource-owner"     = var.email_address
+    Name                     = "EDD-SecurityGroup"
+  }
+}
+
+resource "aws_security_group_rule" "edd_sg_ingress" {
+  type        = "ingress"
+  from_port   = 3306
+  to_port     = 3306
+  protocol    = "tcp"
+  security_group_id = var.rds_sg
+  source_security_group_id = aws_security_group.edd_sg.id
+}
+
+resource "aws_launch_configuration" "edd_launch_config" {
+  image_id             = var.ami_id
+  instance_type        = var.edd_instance_type
+  associate_public_ip_address = false
+  iam_instance_profile = aws_iam_instance_profile.edd_instance_profile.name
+
+  root_block_device {
+    volume_size = var.ebs_size
+    volume_type = "standard"
+  }
+
+  security_groups = [
+    var.web_world_sg,
+    var.from_bastion_sshg,
+    aws_security_group.edd_sg.id
+  ]
+
+  user_data = base64encode(<<EOF
+#!/bin/bash
+echo
+notifyLifeCycleHook CONTINUE 
+EOF
+  )
+}
+
+resource "aws_iam_instance_profile" "edd_instance_profile" {
+  name = "edd-instance-profile"
+  role = aws_iam_role.edd_instance_role.name
+}
+
+resource "aws_iam_role" "edd_instance_role" {
+  name = "edd-instance-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_sns_topic" "edd_notification_sns" {
+  name = "a${var.asset_insight_id}-notification-sns"
+  display_name = "EDD"
+
+  subscription {
+    protocol = "email"
+    endpoint = "siva.j@lseg.com"
+  }
+
+  subscription {
+    protocol = "lambda"
+    endpoint = "arn:aws:lambda:us-west-2:123456789012:function:MyFunction" # Replace with your Lambda function ARN
+  }
+}
+
+output "public_subnet_ids" {
+  value = var.public_subnet_ids
+}
+
+output "vpc_id" {
+  value = var.vpc_id
+}
+
+output "edd_asg_name" {
+  value = aws_autoscaling_group.edd_asg.name
+}
