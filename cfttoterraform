@@ -17,7 +17,7 @@ variable "environment_type" {
   description = "hi"
   type        = string
   validation {
-    condition = contains(["dev", "test", "qa"], var.environment_type)
+    condition     = contains(["dev", "test", "qa"], var.environment_type)
     error_message = "Environment type must be one of dev, test, or qa."
   }
 }
@@ -32,7 +32,7 @@ variable "edd_instance_type" {
   type        = string
   default     = "t3.micro"
   validation {
-    condition = contains(["t3.micro", "c5.micro", "t2.media"], var.edd_instance_type)
+    condition     = contains(["t3.micro", "c5.micro", "t2.media"], var.edd_instance_type)
     error_message = "EDD Instance type must be one of t3.micro, c5.micro, or t2.media."
   }
 }
@@ -42,7 +42,7 @@ variable "ebs_size" {
   type        = number
   default     = 32
   validation {
-    condition = var.ebs_size >= 32
+    condition     = var.ebs_size >= 32
     error_message = "EBS Size must be at least 32."
   }
 }
@@ -64,7 +64,7 @@ variable "desired_edd_node_count" {
   type        = number
   default     = 2
   validation {
-    condition = var.desired_edd_node_count >= 2
+    condition     = var.desired_edd_node_count >= 2
     error_message = "Desired EDD Node Count must be at least 2."
   }
 }
@@ -161,7 +161,7 @@ resource "aws_autoscaling_group" "edd_asg" {
     value               = var.financial_identifier
     propagate_at_launch = true
   }
-  
+
   tag {
     key                 = "tr:application-asset-insight-id"
     value               = var.asset_insight_id
@@ -226,8 +226,8 @@ resource "aws_cloudwatch_metric_alarm" "max_instance_in_use" {
   namespace          = "AWS/AutoScaling"
   metric_name        = "GroupInServiceInstances"
   comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods = "8"
-  period             = "60"
+  evaluation_periods = 8
+  period             = 60
   statistic          = "Sum"
   threshold          = var.max_edd_node_count
 
@@ -241,9 +241,9 @@ resource "aws_cloudwatch_metric_alarm" "max_instance_in_use" {
 }
 
 resource "aws_security_group" "edd_sg" {
-  name_prefix   = "edd-sg"
-  description   = "Security group for EDD"
-  vpc_id        = var.vpc_id
+  name_prefix = "edd-sg"
+  description = "Security group for EDD"
+  vpc_id      = var.vpc_id
 
   ingress {
     from_port   = 8443
@@ -253,9 +253,9 @@ resource "aws_security_group" "edd_sg" {
   }
 
   ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
+    from_port = 443
+    to_port   = 443
+    protocol  = "tcp"
   }
 
   egress {
@@ -270,25 +270,25 @@ resource "aws_security_group" "edd_sg" {
     "translate:TranslateText" = var.financial_identifier
     AssetInsightId           = var.asset_insight_id
     environment              = var.environment_type
-    "tr: resource-owner"     = var.email_address
+    "tr:resource-owner"      = var.email_address
     Name                     = "EDD-SecurityGroup"
   }
 }
 
 resource "aws_security_group_rule" "edd_sg_ingress" {
-  type        = "ingress"
-  from_port   = 3306
-  to_port     = 3306
-  protocol    = "tcp"
-  security_group_id = var.rds_sg
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  security_group_id        = var.rds_sg
   source_security_group_id = aws_security_group.edd_sg.id
 }
 
 resource "aws_launch_configuration" "edd_launch_config" {
-  image_id             = var.ami_id
-  instance_type        = var.edd_instance_type
+  image_id                 = var.ami_id
+  instance_type            = var.edd_instance_type
   associate_public_ip_address = false
-  iam_instance_profile = aws_iam_instance_profile.edd_instance_profile.name
+  iam_instance_profile     = aws_iam_instance_profile.edd_instance_profile.name
 
   root_block_device {
     volume_size = var.ebs_size
@@ -301,11 +301,11 @@ resource "aws_launch_configuration" "edd_launch_config" {
     aws_security_group.edd_sg.id
   ]
 
-  user_data = base64encode(<<EOF
-#!/bin/bash
-echo
-notifyLifeCycleHook CONTINUE 
-EOF
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    echo
+    notifyLifeCycleHook CONTINUE
+    EOF
   )
 }
 
@@ -330,7 +330,7 @@ resource "aws_iam_role" "edd_instance_role" {
 }
 
 resource "aws_sns_topic" "edd_notification_sns" {
-  name = "a${var.asset_insight_id}-notification-sns"
+  name         = "a${var.asset_insight_id}-notification-sns"
   display_name = "EDD"
 
   subscription {
@@ -341,6 +341,11 @@ resource "aws_sns_topic" "edd_notification_sns" {
   subscription {
     protocol = "lambda"
     endpoint = "arn:aws:lambda:us-west-2:123456789012:function:MyFunction" # Replace with your Lambda function ARN
+  }
+
+  subscription {
+    protocol = "sqs"
+    endpoint = "arn:aws:sqs:us-west-2:123456789012:MyQueue" # Replace with your SQS queue ARN
   }
 }
 
