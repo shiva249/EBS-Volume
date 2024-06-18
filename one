@@ -1,0 +1,91 @@
+variable "ami_id" {
+  description = "hi"
+  type        = string
+}
+
+data "aws_ssm_parameter" "ami_id" {
+  name = var.ami_id
+}
+
+variable "hosted_zone_name" {
+  description = "Hosted Zone Name"
+  type        = string
+}
+
+variable "web_world_sg" {
+  description = "Web World Security Group"
+  type        = string
+}
+
+data "aws_ssm_parameter" "web_world_sg" {
+  name = var.web_world_sg
+}
+
+variable "from_bastion_sshg" {
+  description = "From Bastion Security Group"
+  type        = string
+}
+
+data "aws_ssm_parameter" "from_bastion_sshg" {
+  name = var.from_bastion_sshg
+}
+
+variable "web_corp_sg" {
+  description = "Web Corp Security Group"
+  type        = string
+}
+
+data "aws_ssm_parameter" "web_corp_sg" {
+  name = var.web_corp_sg
+}
+
+variable "rds_sg" {
+  description = "RDS Security Group"
+  type        = string
+}
+
+data "aws_ssm_parameter" "rds_sg" {
+  name = var.rds_sg
+}
+
+variable "global_deny_policy" {
+  description = "Global Deny Policy"
+  type        = string
+  default     = "true"
+}
+
+variable "public_subnet_ids" {
+  description = "Public Subnet IDs"
+  type        = list(string)
+}
+
+variable "private_subnet_ids" {
+  description = "Private Subnet IDs"
+  type        = list(string)
+}
+
+variable "vpc_id" {
+  description = "VPC ID"
+  type        = string
+}
+
+# Outputs (optional)
+output "ami_id_value" {
+  value = data.aws_ssm_parameter.ami_id.value
+}
+
+output "web_world_sg_value" {
+  value = data.aws_ssm_parameter.web_world_sg.value
+}
+
+output "from_bastion_sshg_value" {
+  value = data.aws_ssm_parameter.from_bastion_sshg.value
+}
+
+output "web_corp_sg_value" {
+  value = data.aws_ssm_parameter.web_corp_sg.value
+}
+
+output "rds_sg_value" {
+  value = data.aws_ssm_parameter.rds_sg.value
+}
