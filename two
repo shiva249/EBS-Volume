@@ -1,10 +1,17 @@
-  EDDWebLbSecgroup:
-    Type: 'AWS::EC2::SecurityGroup'
+  TargetGroupForLoadBalancerForEDD:
     Properties:
-      GroupDescription: Security group for EDD servlet Load balancer
+      HealthCheckIntervalSeconds: '30'
+      HealthCheckPath: /gt/gtserver
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTPS
+      HealthCheckTimeoutSeconds: '5'
+      HealthyThresholdCount: '2'
+      Name: !Sub 'a${AssetInsightId}-${ProductName}-tg-${ServiceEnvironment}'
+      Port: '8443'
+      Protocol: HTTPS
       Tags:
         - Key: Description
-          Value: Security group for EDD servlet Load balancer
+          Value: Target Group for Application LB for gt servlet
         - Key: tr:financial-identifier
           Value: !Ref FinancialIdentifier
         - Key: tr:application-asset-insight-id
@@ -13,18 +20,13 @@
           Value: !Ref EnvironmentType
         - Key: tr:resource-owner
           Value: !Ref EmailAddress
-        - Key: Name
-          Value: !Sub 'a${AssetInsightId}-gt-servlet-lb-sg-${ServiceEnvironment}'
+        - Key: hera-target-group
+          Value: !Sub 'a${AssetInsightId}-${ProductName}-tg-${ServiceEnvironment}'
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '60'
+        - Key: stickiness.enabled
+          Value: 'true'
+      UnhealthyThresholdCount: '2'
       VpcId: !Ref VPCId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: '443'
-          ToPort: '443'
-          CidrIp: '198.179.137.0/24'
-        - IpProtocol: tcp
-          FromPort: '443'
-          ToPort: '443'
-          CidrIp: '159.220.0.0/16'
-      SecurityGroupEgress:
-        - CidrIp: 0.0.0.0/0
-          IpProtocol: '-1'
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
