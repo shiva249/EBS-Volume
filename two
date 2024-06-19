@@ -1,18 +1,14 @@
-  ListenerForLoadBalancerForEDDRedirect:
-    DependsOn:
-      - LoadBalancerForEDD
+  ListenerForLoadBalancerForEDD:
     Properties:
+      Certificates:
+        - CertificateArn: !Ref LBCertArn
       DefaultActions:
-        - RedirectConfig:
-            Host: "#{host}"
-            Path: "/#{path}"
-            Port: 443
-            Protocol: "HTTPS"
-            Query: "#{query}"
-            StatusCode: HTTP_302
-          Type: redirect
+        - TargetGroupArn:
+            Ref: TargetGroupForLoadBalancerForEDD
+          Type: forward
       LoadBalancerArn:
         Ref: LoadBalancerForEDD
-      Port: '80'
-      Protocol: HTTP
+      Port: '443'
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
     Type: 'AWS::ElasticLoadBalancingV2::Listener'
