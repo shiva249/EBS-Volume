@@ -1,20 +1,10 @@
-
-  AutoScalingMaxInstanceCPUUtilizationAlarm:
-    Type: 'AWS::CloudWatch::Alarm'
-    Properties:
-      AlarmDescription: 'AutoScaling Group CPU Utilization'
-      Namespace: 'AWS/EC2'
-      Dimensions:
-      - Name: AutoScalingGroupName
-        Value:
-          !Ref EDDASG
-      MetricName: CPUUtilization
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Statistic: Average
-      Period: 60
-      EvaluationPeriods: 8
-      Threshold: 60
-      AlarmActions:
-        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:compass-alarm-notification"
-      OKActions:
-        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:compass-alarm-notification"
+  DBConnectionFailureMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties: 
+      FilterPattern: '?"Communications link failure" ?"Too many connections" ?"Cannot create PoolableConnectionFactory"'
+      LogGroupName: !Sub "/a${AssetInsightId}/${ServiceEnvironment}/Tomcat/catalina.out"
+      MetricTransformations: 
+        - 
+          MetricValue: "1"
+          MetricNamespace: !Sub "a${AssetInsightId}-LogMetrics"
+          MetricName: !Sub "a${AssetInsightId}-${ProductName}-${ServiceEnvironment}-${AWS::Region}-DB-Connection-Failed"
