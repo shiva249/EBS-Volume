@@ -1,17 +1,18 @@
-  TargetGroupForLoadBalancerForEDD:
+  LoadBalancerForEDD:
     Properties:
-      HealthCheckIntervalSeconds: '30'
-      HealthCheckPath: /gt/gtserver
-      HealthCheckPort: traffic-port
-      HealthCheckProtocol: HTTPS
-      HealthCheckTimeoutSeconds: '5'
-      HealthyThresholdCount: '2'
-      Name: !Sub 'a${AssetInsightId}-${ProductName}-tg-${ServiceEnvironment}'
-      Port: '8443'
-      Protocol: HTTPS
+      IpAddressType: ipv4
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '180'
+      Name: !Sub 'a${AssetInsightId}-${ProductName}-${ServiceEnvironment}'
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref WebCorpSg
+        - !Ref EDDWebLbSecgroup
+      Subnets: !Ref PublicSubnetIds
       Tags:
         - Key: Description
-          Value: Target Group for Application LB for gt servlet
+          Value: Application LB for EDD gt-servlet
         - Key: tr:financial-identifier
           Value: !Ref FinancialIdentifier
         - Key: tr:application-asset-insight-id
@@ -20,13 +21,4 @@
           Value: !Ref EnvironmentType
         - Key: tr:resource-owner
           Value: !Ref EmailAddress
-        - Key: hera-target-group
-          Value: !Sub 'a${AssetInsightId}-${ProductName}-tg-${ServiceEnvironment}'
-      TargetGroupAttributes:
-        - Key: deregistration_delay.timeout_seconds
-          Value: '60'
-        - Key: stickiness.enabled
-          Value: 'true'
-      UnhealthyThresholdCount: '2'
-      VpcId: !Ref VPCId
-    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
