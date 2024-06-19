@@ -1,4 +1,4 @@
- EDDWebLbSecgroup:
+  EDDWebLbSecgroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
       GroupDescription: Security group for EDD servlet Load balancer
