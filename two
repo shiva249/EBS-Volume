@@ -1,16 +1,30 @@
-  DBConnectionFailure:
-    Type: 'AWS::CloudWatch::Alarm'
+ EDDWebLbSecgroup:
+    Type: 'AWS::EC2::SecurityGroup'
     Properties:
-      AlarmDescription: !Sub "${ProductName} Database connection failure"
-      Namespace: !Sub "a${AssetInsightId}-LogMetrics"
-      MetricName: !Sub "a${AssetInsightId}-${ProductName}-${ServiceEnvironment}-${AWS::Region}-DB-Connection-Failed"
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Statistic: Sum
-      Period: 60
-      EvaluationPeriods: 1
-      Threshold: 1
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:compass-alarm-notification"
-      OKActions:
-        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:compass-alarm-notification"
+      GroupDescription: Security group for EDD servlet Load balancer
+      Tags:
+        - Key: Description
+          Value: Security group for EDD servlet Load balancer
+        - Key: tr:financial-identifier
+          Value: !Ref FinancialIdentifier
+        - Key: tr:application-asset-insight-id
+          Value: !Ref AssetInsightId
+        - Key: tr:environment-type
+          Value: !Ref EnvironmentType
+        - Key: tr:resource-owner
+          Value: !Ref EmailAddress
+        - Key: Name
+          Value: !Sub 'a${AssetInsightId}-gt-servlet-lb-sg-${ServiceEnvironment}'
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: '198.179.137.0/24'
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: '159.220.0.0/16'
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: '-1'
