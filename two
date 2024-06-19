@@ -1,24 +1,10 @@
-  LoadBalancerForEDD:
+  LbCname:
+    Type: "AWS::Route53::RecordSet"
     Properties:
-      IpAddressType: ipv4
-      LoadBalancerAttributes:
-        - Key: idle_timeout.timeout_seconds
-          Value: '180'
-      Name: !Sub 'a${AssetInsightId}-${ProductName}-${ServiceEnvironment}'
-      Scheme: internet-facing
-      SecurityGroups:
-        - !Ref WebCorpSg
-        - !Ref EDDWebLbSecgroup
-      Subnets: !Ref PublicSubnetIds
-      Tags:
-        - Key: Description
-          Value: Application LB for EDD gt-servlet
-        - Key: tr:financial-identifier
-          Value: !Ref FinancialIdentifier
-        - Key: tr:application-asset-insight-id
-          Value: !Ref AssetInsightId
-        - Key: tr:environment-type
-          Value: !Ref EnvironmentType
-        - Key: tr:resource-owner
-          Value: !Ref EmailAddress
-    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+      HostedZoneName: !Sub "${HostedZoneName}"
+      Comment: !Sub "DNS name for {ProductName} LB."
+      Name: !Sub "a${AssetInsightId}-${ProductName}-${ServiceEnvironment}-${AWS::Region}.${HostedZoneName}"
+      Type: 'CNAME'
+      TTL: '300'
+      ResourceRecords:
+        - !GetAtt "LoadBalancerForEDD.DNSName"
