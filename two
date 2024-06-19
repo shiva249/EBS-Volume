@@ -1,10 +1,18 @@
-  LbCname:
-    Type: "AWS::Route53::RecordSet"
+  ListenerForLoadBalancerForEDDRedirect:
+    DependsOn:
+      - LoadBalancerForEDD
     Properties:
-      HostedZoneName: !Sub "${HostedZoneName}"
-      Comment: !Sub "DNS name for {ProductName} LB."
-      Name: !Sub "a${AssetInsightId}-${ProductName}-${ServiceEnvironment}-${AWS::Region}.${HostedZoneName}"
-      Type: 'CNAME'
-      TTL: '300'
-      ResourceRecords:
-        - !GetAtt "LoadBalancerForEDD.DNSName"
+      DefaultActions:
+        - RedirectConfig:
+            Host: "#{host}"
+            Path: "/#{path}"
+            Port: 443
+            Protocol: "HTTPS"
+            Query: "#{query}"
+            StatusCode: HTTP_302
+          Type: redirect
+      LoadBalancerArn:
+        Ref: LoadBalancerForEDD
+      Port: '80'
+      Protocol: HTTP
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
