@@ -1,22 +1,6 @@
-  TargetGroupForLoadBalancerForEDDUnhealthyHosts:
-    Type: 'AWS::CloudWatch::Alarm'
-    Properties:
-      AlarmDescription: 'gt-servlet target group unhealthy host count greater than one'
-      Namespace: 'AWS/ApplicationELB'
-      Dimensions:
-      - Name: LoadBalancer
-        Value:
-          !GetAtt LoadBalancerForEDD.LoadBalancerFullName
-      - Name: TargetGroup
-        Value:
-          !GetAtt TargetGroupForLoadBalancerForEDD.TargetGroupFullName
-      MetricName: UnHealthyHostCount
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 1
-      AlarmActions:
-        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:compass-alarm-notification"
-      OKActions:
-        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:compass-alarm-notification"
+Outputs:
+  EDDSecurityGroupId:
+    Value: !GetAtt EDDSG.GroupId
+    Description: The security group Id of the EDD servlet
+    Export:
+      Name: !Sub 'a${AssetInsightId}-${ProductName}-${ServiceEnvironment}-${AWS::Region}'
