@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Variables
+INSTANCE_ID="i-xxxxxxxxxxxx"  # Replace with your instance ID
+REGION="us-east-1"  # Replace with your region
+ENCRYPTION_KEY="alias/aws/ebs"  # Replace with your KMS key if needed
+
+# Get the list of volumes attached to the instance
+VOLUMES=$(aws ec2 describe-volumes --region $REGION --filters Name=attachment.instance-id,Values=$INSTANCE_ID | jq -r '.Volumes[].VolumeId')
+
+for VOLUME_ID in $VOLUMES; do
+  echo "Processing volume: $VOLUME_ID"
+
+  # Create a snapshot of the volume
+  SNAPSHOT_ID=$(aws ec2 create-snapshot --region $REGION --volume-id $VOLUME_ID --description "Snapshot of $VOLUME_ID" | jq -r '.SnapshotId')
+  echo "Created snapshot: $SNAPSHOT_ID"
+
+  # Wait for the snapshot to complete
+  aws ec2 wait snapshot-completed --region $REGION --snapshot-ids $SNAPSHOT_ID
+  echo "Snapshot completed: $SNAPSHOT_ID"
+
+  # Create an encrypted copy of the snapshot
+  ENCRYPTED_SNAPSHOT_ID=$(aws ec2 copy-snapshot --region $REGION --source-snapshot-id $SNAPSHOT_ID --source-region $REGION --description "Encrypted copy of $SNAPSHOT_ID" --encrypted --kms-key-id $ENCRYPTION_KEY | jq -r '.SnapshotId')
+  echo "Created encrypted snapshot: $ENCRYPTED_SNAPSHOT_ID"
+
+  # Wait for the encrypted snapshot to complete
+  aws ec2 wait snapshot-completed --region $REGION --snapshot-ids $ENCRYPTED_SNAPSHOT_ID
+  echo "Encrypted snapshot completed: $ENCRYPTED_SNAPSHOT_ID"
+
+  # Create a new encrypted volume from the encrypted snapshot
+  NEW_VOLUME_ID=$(aws ec2 create-volume --region $REGION --snapshot-id $ENCRYPTED_SNAPSHOT_ID --availability-zone $REGION"a" --volume-type gp2 | jq -r '.VolumeId')
+  echo "Created encrypted volume: $NEW_VOLUME_ID"
+
+  # Wait for the new volume to become available
+  aws ec2 wait volume-available --region $REGION --volume-ids $NEW_VOLUME_ID
+  echo "New volume available: $NEW_VOLUME_ID"
+
+  # Detach the old volume
+  aws ec2 detach-volume --region $REGION --volume-id $VOLUME_ID
+  echo "Detached volume: $VOLUME_ID"
+
+  # Wait for the old volume to detach
+  aws ec2 wait volume-available --region $REGION --volume-ids $VOLUME_ID
+  echo "Old volume detached: $VOLUME_ID"
+
+  # Attach the new encrypted volume
+  DEVICE_NAME=$(aws ec2 describe-volumes --region $REGION --volume-ids $VOLUME_ID | jq -r '.Volumes[0].Attachments[0].Device')
+  aws ec2 attach-volume --region $REGION --volume-id $NEW_VOLUME_ID --instance-id $INSTANCE_ID --device $DEVICE_NAME
+  echo "Attached new encrypted volume: $NEW_VOLUME_ID to $DEVICE_NAME"
+
+  # Wait for the new volume to attach
+  aws ec2 wait volume-in-use --region $REGION --volume-ids $NEW_VOLUME_ID
+  echo "New volume attached: $NEW_VOLUME_ID"
+done
+
+echo "All volumes processed."
