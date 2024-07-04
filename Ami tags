@@ -12,6 +12,10 @@ echo "Region,ImageID,Name,CreationDate,SnapshotID,VolumeID,StartTime,mnd-applica
 
 # Get your AWS account ID
 ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+if [ $? -ne 0 ]; then
+    echo "Error getting AWS account ID. Ensure that AWS CLI is configured correctly."
+    exit 1
+fi
 
 # Define the regions to check
 REGIONS=("us-east-2" "eu-west-1")
@@ -34,18 +38,44 @@ for REGION in "${REGIONS[@]}"; do
     echo "Processing region: $REGION"
     
     # Get the list of AMIs created by you in the specified date range
-    aws ec2 describe-images --region $REGION --owners self --query "Images[?CreationDate>='${START_DATE}T00:00:00Z' && CreationDate<='${END_DATE}T23:59:59Z'].[ImageId,Name,CreationDate]" --output text | \
-    while read -r IMAGE_ID NAME CREATION_DATE; do
+    AMIS=$(aws ec2 describe-images --region $REGION --owners self --query "Images[?CreationDate>='${START_DATE}T00:00:00Z' && CreationDate<='${END_DATE}T23:59:59Z'].[ImageId,Name,CreationDate]" --output text)
+    if [ $? -ne 0 ]; then
+        echo "Error describing images in region $REGION. Ensure that you have the necessary permissions."
+        continue
+    fi
+    
+    if [ -z "$AMIS" ]; then
+        echo "No AMIs found in region $REGION within the specified date range."
+        continue
+    fi
+    
+    echo "$AMIS" | while read -r IMAGE_ID NAME CREATION_DATE; do
         # Remove quotes from NAME
         NAME=$(echo $NAME | sed 's/^"//;s/"$//')
         
         # Get the tags associated with the AMI
         TAG_VALUE=$(aws ec2 describe-tags --region $REGION --filters "Name=resource-id,Values=${IMAGE_ID}" "Name=key,Values=mnd-applicationid" --query "Tags[?Value!=null && starts_with(Value, '20')].Value" --output text)
         
+        if [ $? -ne 0 ]; then
+            echo "Error describing tags for image $IMAGE_ID in region $REGION."
+            continue
+        fi
+        
         if [ -n "$TAG_VALUE" ]; then
             # Get the snapshots associated with the AMI
-            aws ec2 describe-snapshots --region $REGION --owner-ids $ACCOUNT_ID --filters Name=description,Values="*${IMAGE_ID}*" --query "Snapshots[?StartTime>='${START_DATE}T00:00:00Z' && StartTime<='${END_DATE}T23:59:59Z'].[SnapshotId,VolumeId,StartTime]" --output text | \
-            while read -r SNAPSHOT_ID VOLUME_ID START_TIME; do
+            SNAPSHOTS=$(aws ec2 describe-snapshots --region $REGION --owner-ids $ACCOUNT_ID --filters Name=description,Values="*${IMAGE_ID}*" --query "Snapshots[?StartTime>='${START_DATE}T00:00:00Z' && StartTime<='${END_DATE}T23:59:59Z'].[SnapshotId,VolumeId,StartTime]" --output text)
+            
+            if [ $? -ne 0 ]; then
+                echo "Error describing snapshots for image $IMAGE_ID in region $REGION."
+                continue
+            fi
+            
+            if [ -z "$SNAPSHOTS" ]; then
+                echo "No snapshots found for image $IMAGE_ID in region $REGION."
+                continue
+            fi
+            
+            echo "$SNAPSHOTS" | while read -r SNAPSHOT_ID VOLUME_ID START_TIME; do
                 # Check if the snapshot creation date is within the specified range
                 if [ $(is_date_in_range $START_TIME) -eq 1 ]; then
                     echo "$REGION,$IMAGE_ID,$NAME,$CREATION_DATE,$SNAPSHOT_ID,$VOLUME_ID,$START_TIME,$TAG_VALUE" >> $OUTPUT_FILE
