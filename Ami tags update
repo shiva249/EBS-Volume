@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Define the tag key and value
+TAG_KEY="a205832"
+TAG_VALUE="your-tag-value"
+
+# Define the input file containing AMI IDs
+INPUT_FILE="ami_list.txt"
+
+# Define the regions to check
+REGIONS=("us-east-1" "eu-west-1")
+
+# Read the AMI IDs from the input file
+if [[ ! -f "$INPUT_FILE" ]]; then
+  echo "Input file $INPUT_FILE not found!"
+  exit 1
+fi
+
+AMI_IDS=($(cat $INPUT_FILE))
+
+# Loop through each region and update the tags for each AMI
+for REGION in "${REGIONS[@]}"; do
+  for AMI_ID in "${AMI_IDS[@]}"; do
+    echo "Updating tag for AMI $AMI_ID in region $REGION..."
+    aws ec2 create-tags --region $REGION --resources $AMI_ID --tags Key=$TAG_KEY,Value=$TAG_VALUE
+    
+    if [ $? -eq 0 ]; then
+      echo "Successfully updated tag for AMI $AMI_ID in region $REGION."
+    else
+      echo "Failed to update tag for AMI $AMI_ID in region $REGION."
+    fi
+  done
+done
+
+echo "Tagging operation completed."
