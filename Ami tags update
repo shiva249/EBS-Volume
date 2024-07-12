@@ -65,3 +65,58 @@ for REGION in "${REGIONS[@]}"; do
 done
 
 echo "Deregistration operation completed."
+
+--------------
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Define the input files containing AMI and Snapshot IDs
+AMI_INPUT_FILE="ami_list.txt"
+SNAPSHOT_INPUT_FILE="snapshot_list.txt"
+
+# Define the regions to check
+REGIONS=("us-east-1" "eu-west-1")
+
+# Read the AMI IDs from the input file
+if [[ ! -f "$AMI_INPUT_FILE" ]]; then
+  echo "Input file $AMI_INPUT_FILE not found!"
+  exit 1
+fi
+
+AMI_IDS=($(cat "$AMI_INPUT_FILE"))
+
+# Read the Snapshot IDs from the input file
+if [[ ! -f "$SNAPSHOT_INPUT_FILE" ]]; then
+  echo "Input file $SNAPSHOT_INPUT_FILE not found!"
+  exit 1
+fi
+
+SNAPSHOT_IDS=($(cat "$SNAPSHOT_INPUT_FILE"))
+
+# Loop through each region and deregister each AMI
+for REGION in "${REGIONS[@]}"; do
+  for AMI_ID in "${AMI_IDS[@]}"; do
+    echo "Deregistering AMI $AMI_ID in region $REGION..."
+    if aws ec2 deregister-image --region "$REGION" --image-id "$AMI_ID"; then
+      echo "Successfully deregistered AMI $AMI_ID in region $REGION."
+    else
+      echo "Failed to deregister AMI $AMI_ID in region $REGION."
+    fi
+  done
+done
+
+# Loop through each region and delete each snapshot
+for REGION in "${REGIONS[@]}"; do
+  for SNAPSHOT_ID in "${SNAPSHOT_IDS[@]}"; do
+    echo "Deleting Snapshot $SNAPSHOT_ID in region $REGION..."
+    if aws ec2 delete-snapshot --region "$REGION" --snapshot-id "$SNAPSHOT_ID"; then
+      echo "Successfully deleted Snapshot $SNAPSHOT_ID in region $REGION."
+    else
+      echo "Failed to delete Snapshot $SNAPSHOT_ID in region $REGION."
+    fi
+  done
+done
+
+echo "Deregistration and snapshot deletion operation completed."
