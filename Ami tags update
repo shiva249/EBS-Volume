@@ -33,3 +33,35 @@ for REGION in "${REGIONS[@]}"; do
 done
 
 echo "Tagging operation completed."
+----------------------
+#!/bin/bash
+
+# Define the input file containing AMI IDs
+INPUT_FILE="ami_list.txt"
+
+# Define the regions to check
+REGIONS=("us-east-1" "eu-west-1")
+
+# Read the AMI IDs from the input file
+if [[ ! -f "$INPUT_FILE" ]]; then
+  echo "Input file $INPUT_FILE not found!"
+  exit 1
+fi
+
+AMI_IDS=($(cat $INPUT_FILE))
+
+# Loop through each region and deregister each AMI
+for REGION in "${REGIONS[@]}"; do
+  for AMI_ID in "${AMI_IDS[@]}"; do
+    echo "Deregistering AMI $AMI_ID in region $REGION..."
+    aws ec2 deregister-image --region $REGION --image-id $AMI_ID
+    
+    if [ $? -eq 0 ]; then
+      echo "Successfully deregistered AMI $AMI_ID in region $REGION."
+    else
+      echo "Failed to deregister AMI $AMI_ID in region $REGION."
+    fi
+  done
+done
+
+echo "Deregistration operation completed."
