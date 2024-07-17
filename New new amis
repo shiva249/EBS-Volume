@@ -31,3 +31,57 @@ do
     echo "No AMIs found in region: $region between $start_date and $end_date"
   fi
 done
+
+---------
+#!/bin/bash
+
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+start_date="2019-01-01T00:00:00Z"
+end_date="2022-12-31T23:59:59Z"
+output_file="ami_snapshots.csv"
+
+# Create CSV header
+echo "Region,Image ID,Name,Creation Date,Snapshot ID,Volume ID,Start Time" > $output_file
+
+for region in "${regions[@]}"
+do
+  echo "Fetching AMIs in region: $region"
+  
+  images=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].[ImageId,Name,CreationDate,BlockDeviceMappings[*].Ebs.SnapshotId,BlockDeviceMappings[*].Ebs.VolumeId]" \
+    --output text)
+  
+  if [ -n "$images" ]; then
+    while read -r ami_id name creation_date snapshot_ids volume_ids; do
+      if [ -z "$snapshot_ids" ]; then
+        snapshot_ids="No snapshots found"
+      else
+        snapshot_ids=$(echo $snapshot_ids | tr '\t' ', ')
+      fi
+
+      if [ -z "$volume_ids" ]; then
+        volume_ids="No volume IDs found"
+      else
+        volume_ids=$(echo $volume_ids | tr '\t' ', ')
+      fi
+
+      # Fetch snapshot start time
+      snapshot_start_times=""
+      for snapshot_id in $(echo $snapshot_ids | tr ',' ' '); do
+        snapshot_start_time=$(aws ec2 describe-snapshots --region $region --snapshot-ids $snapshot_id --query "Snapshots[0].StartTime" --output text)
+        if [ -n "$snapshot_start_time" ]; then
+          snapshot_start_times="$snapshot_start_times,$snapshot_start_time"
+        else
+          snapshot_start_times="$snapshot_start_times,N/A"
+        fi
+      done
+      snapshot_start_times=$(echo $snapshot_start_times | sed 's/^,//')
+
+      echo "$region,$ami_id,$name,$creation_date,\"$snapshot_ids\",\"$volume_ids\",\"$snapshot_start_times\"" >> $output_file
+    done <<< "$images"
+  else
+    echo "No AMIs found in region: $region between $start_date and $end_date"
+  fi
+done
