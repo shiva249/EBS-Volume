@@ -1,0 +1,33 @@
+#!/bin/bash
+
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+start_date="2019-01-01T00:00:00Z"
+end_date="2022-12-31T23:59:59Z"
+output_file="ami_snapshots.csv"
+
+# Create CSV header
+echo "Region,AMI ID,Creation Date,Snapshot IDs" > $output_file
+
+for region in "${regions[@]}"
+do
+  echo "Fetching AMIs in region: $region"
+  
+  images=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].[ImageId,CreationDate,BlockDeviceMappings[*].Ebs.SnapshotId]" \
+    --output text)
+  
+  if [ -n "$images" ]; then
+    while read -r ami_id creation_date snapshot_ids; do
+      if [ -z "$snapshot_ids" ]; then
+        snapshot_ids="No snapshots found"
+      else
+        snapshot_ids=$(echo $snapshot_ids | tr '\t' ', ')
+      fi
+      echo "$region,$ami_id,$creation_date,\"$snapshot_ids\"" >> $output_file
+    done <<< "$images"
+  else
+    echo "No AMIs found in region: $region between $start_date and $end_date"
+  fi
+done
