@@ -120,5 +120,80 @@ do
 done
 
 echo "AMI details saved to $output_file."
+------------------------------------------------------------------------------------
+#!/bin/bash
+
+# Define the regions to check
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+# Define the date range
+start_date="2019-01-01T00:00:00Z"
+end_date="2022-12-31T23:59:59Z"
+# Output CSV file
+output_file="ami_details.csv"
+
+# Create the initial part of the CSV header
+header="Region,AMI ID,AMI Description,Creation Date"
+
+# Determine the maximum number of snapshots to set the headers dynamically
+max_snapshots=0
+for region in "${regions[@]}"
+do
+  echo "Checking max snapshots in region: $region"
+  num_snapshots=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].BlockDeviceMappings[*].Ebs.SnapshotId" \
+    --output text | wc -w)
+  if (( num_snapshots > max_snapshots )); then
+    max_snapshots=$num_snapshots
+  fi
+done
+
+# Extend the header for the maximum number of snapshot columns
+for i in $(seq 1 $max_snapshots); do
+  header="$header,Snapshot ID $i"
+done
+
+# Write the header to the output file
+echo "$header" > $output_file
+
+# Loop through each region to fetch AMI details
+for region in "${regions[@]}"
+do
+  echo "Fetching AMIs in region: $region"
+  
+  ami_data=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].[ImageId,Description,CreationDate,BlockDeviceMappings[*].Ebs.SnapshotId]" \
+    --output text)
+  
+  if [ -n "$ami_data" ]; then
+    while IFS=$'\t' read -r ami_id ami_description creation_date snapshot_ids
+    do
+      # Prepare the row with the basic details
+      row="$region,$ami_id,\"$ami_description\",$creation_date"
+      
+      # Add snapshot IDs, ensuring they are split into separate columns
+      snapshot_ids=($snapshot_ids)
+      for snapshot_id in "${snapshot_ids[@]}"; do
+        row="$row,$snapshot_id"
+      done
+      
+      # Append empty fields if there are fewer snapshots than max_snapshots
+      for (( i=${#snapshot_ids[@]}; i<max_snapshots; i++ )); do
+        row="$row,"
+      done
+      
+      # Write the row to the CSV file
+      echo "$row" >> $output_file
+    done <<< "$ami_data"
+  else
+    echo "No AMIs found in region: $region between $start_date and $end_date"
+  fi
+done
+
+echo "AMI details saved to $output_file."
+
 
 
