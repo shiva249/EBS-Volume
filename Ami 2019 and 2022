@@ -194,6 +194,45 @@ do
 done
 
 echo "AMI details saved to $output_file."
+---------------------------------------------------------------------------
+#!/bin/bash
+
+# Define the regions to check
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+# Define the date range
+start_date="2019-01-01T00:00:00Z"
+end_date="2022-12-31T23:59:59Z"
+# Output CSV file
+output_file="ami_details.csv"
+
+# Create CSV header
+echo "Region,AMI ID,AMI Description,Creation Date" > $output_file
+
+# Loop through each region
+for region in "${regions[@]}"
+do
+  echo "Fetching AMIs in region: $region"
+  
+  # Describe images and filter by creation date and owner
+  ami_data=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].[ImageId,Description,CreationDate]" \
+    --output text)
+  
+  # Check if there are AMIs found
+  if [ -n "$ami_data" ]; then
+    while IFS=$'\t' read -r ami_id ami_description creation_date
+    do
+      # Write data to CSV file
+      echo "$region,$ami_id,\"$ami_description\",$creation_date" >> $output_file
+    done <<< "$ami_data"
+  else
+    echo "No AMIs found in region: $region between $start_date and $end_date"
+  fi
+done
+
+echo "AMI details saved to $output_file."
 
 
 
