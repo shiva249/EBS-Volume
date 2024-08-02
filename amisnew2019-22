@@ -147,3 +147,74 @@ do
 done
 
 echo "AMI and snapshot details saved to $output_file."
+----------------------------------------------------------
+3
+----------------------
+#!/bin/bash
+
+cd /tmp
+
+# Define the date range
+START_DATE="2019-01-01"
+END_DATE="2022-12-31"
+
+# Define the output file
+OUTPUT_FILE="ami_and_snapshots.csv"
+
+# Initialize the output file with a header
+echo "Region,ImageID,Name,CreationDate,SnapshotID,VolumeID,StartTime" > $OUTPUT_FILE
+
+# Get your AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+if [ $? -ne 0 ]; then
+    echo "Error getting AWS account ID. Ensure that AWS CLI is configured correctly."
+    exit 1
+fi
+
+# Define the regions to check
+REGIONS=("us-east-1" "eu-west-1" "eu-west-2")
+
+# Function to check if a date is within the range
+is_date_in_range() {
+    DATE=$1
+    START_DATE="2019-01-01T00:00:00Z"
+    END_DATE="2022-12-31T23:59:59Z"
+
+    if [[ "$DATE" > "$START_DATE" && "$DATE" < "$END_DATE" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+# Loop through each region
+for REGION in "${REGIONS[@]}"; do
+    echo "Processing region: $REGION"
+    
+    # Get the list of AMIs created by you in the specified date range
+    AMIS=$(aws ec2 describe-images --region $REGION --owners self --query "Images[?CreationDate>='${START_DATE}T00:00:00Z' && CreationDate<='${END_DATE}T23:59:59Z'].[ImageId,Name,CreationDate]" --output text)
+    if [ $? -ne 0 ]; then
+        echo "Error describing images in region $REGION. Ensure that you have the necessary permissions."
+        continue
+    fi
+    
+    if [ -z "$AMIS" ]; then
+        echo "No AMIs found in region $REGION within the specified date range."
+        continue
+    fi
+            
+            if [ -z "$SNAPSHOTS" ]; then
+                echo "No snapshots found for image $IMAGE_ID in region $REGION."
+                continue
+            fi
+            
+            echo "$SNAPSHOTS" | while read -r SNAPSHOT_ID VOLUME_ID START_TIME; do
+                # Check if the snapshot creation date is within the specified range
+                if [ $(is_date_in_range $START_TIME) -eq 1 ]; then
+                    echo "$REGION,$IMAGE_ID,$NAME,$CREATION_DATE,$SNAPSHOT_ID,$VOLUME_ID,$START_TIME,$TAG_VALUE" >> $OUTPUT_FILE
+                fi
+            done
+    done
+
+# Notify the user
+echo "AMIs and associated snapshots created between 2019 and 2022 have been saved to $OUTPUT_FILE"
