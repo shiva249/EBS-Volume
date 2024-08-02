@@ -56,3 +56,94 @@ do
 done
 
 echo "AMI and snapshot details saved to $output_file."
+-----------------------------------------------------------------------------------
+2.
+------
+#!/bin/bash
+
+# Define the regions to check
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+# Define the date range
+start_date="2019-01-01T00:00:00Z"
+end_date="2022-12-31T23:59:59Z"
+# Output CSV file
+output_file="ami_snapshots_details.csv"
+
+# Create CSV header
+echo "Region,AMI ID,AMI Description,Creation Date,Snapshot ID 1,Snapshot Description 1,Snapshot Start Time 1,Volume ID 1,Snapshot ID 2,Snapshot Description 2,Snapshot Start Time 2,Volume ID 2,..." > $output_file
+
+# Determine the maximum number of snapshots to set the headers dynamically
+max_snapshots=0
+for region in "${regions[@]}"
+do
+  echo "Checking max snapshots in region: $region"
+  num_snapshots=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].BlockDeviceMappings[*].Ebs.SnapshotId" \
+    --output text | wc -w)
+  if (( num_snapshots > max_snapshots )); then
+    max_snapshots=$num_snapshots
+  fi
+done
+
+# Create the header with the appropriate number of snapshot columns
+header="Region,AMI ID,AMI Description,Creation Date"
+for i in $(seq 1 $max_snapshots); do
+  header="$header,Snapshot ID $i,Snapshot Description $i,Snapshot Start Time $i,Volume ID $i"
+done
+
+# Write the header to the output file
+echo "$header" > $output_file
+
+# Loop through each region to fetch AMI details
+for region in "${regions[@]}"
+do
+  echo "Fetching AMIs in region: $region"
+  
+  ami_data=$(aws ec2 describe-images \
+    --region $region \
+    --owners self \
+    --query "Images[?CreationDate>='$start_date' && CreationDate<='$end_date'].[ImageId,Description,CreationDate,BlockDeviceMappings[*].Ebs.SnapshotId]" \
+    --output text)
+  
+  if [ -n "$ami_data" ]; then
+    while IFS=$'\t' read -r ami_id ami_description creation_date snapshot_ids
+    do
+      # Prepare the row with the basic AMI details
+      row="$region,$ami_id,\"$ami_description\",$creation_date"
+      
+      # Fetch details for each snapshot associated with the AMI
+      snapshot_ids=($snapshot_ids)
+      for snapshot_id in "${snapshot_ids[@]}"; do
+        snapshot_data=$(aws ec2 describe-snapshots \
+          --region $region \
+          --snapshot-ids $snapshot_id \
+          --query "Snapshots[].[SnapshotId,Description,StartTime,VolumeId]" \
+          --output text)
+        
+        if [ -n "$snapshot_data" ]; then
+          while IFS=$'\t' read -r snapshot_id snapshot_description snapshot_start_time volume_id
+          do
+            # Add snapshot details to the row
+            row="$row,$snapshot_id,\"$snapshot_description\",$snapshot_start_time,$volume_id"
+          done <<< "$snapshot_data"
+        else
+          row="$row,,,,"
+        fi
+      done
+      
+      # Append empty fields if there are fewer snapshots than max_snapshots
+      for (( i=${#snapshot_ids[@]}; i<max_snapshots; i++ )); do
+        row="$row,,,,"
+      done
+      
+      # Write the row to the CSV file
+      echo "$row" >> $output_file
+    done <<< "$ami_data"
+  else
+    echo "No AMIs found in region: $region between $start_date and $end_date"
+  fi
+done
+
+echo "AMI and snapshot details saved to $output_file."
