@@ -233,6 +233,48 @@ do
 done
 
 echo "AMI details saved to $output_file."
+-----------------------------------------------------------------------------
+snapshots list:
+--------------------------------------------
+#!/bin/bash
+
+# Define the regions to check
+regions=("us-east-1" "eu-west-1" "eu-west-2")
+# Define the date range
+start_date="2019-01-01T00:00:00Z"
+end_date="2022-12-31T23:59:59Z"
+# Output CSV file
+output_file="snapshots_details.csv"
+
+# Create CSV header
+echo "Region,Snapshot ID,Description,Start Time,Volume ID,Owner ID" > $output_file
+
+# Loop through each region
+for region in "${regions[@]}"
+do
+  echo "Fetching snapshots in region: $region"
+  
+  # Describe snapshots and filter by creation date
+  snapshot_data=$(aws ec2 describe-snapshots \
+    --region $region \
+    --owner-ids self \
+    --query "Snapshots[?StartTime>='$start_date' && StartTime<='$end_date'].[SnapshotId,Description,StartTime,VolumeId,OwnerId]" \
+    --output text)
+  
+  # Check if there are snapshots found
+  if [ -n "$snapshot_data" ]; then
+    while IFS=$'\t' read -r snapshot_id description start_time volume_id owner_id
+    do
+      # Write data to CSV file
+      echo "$region,$snapshot_id,\"$description\",$start_time,$volume_id,$owner_id" >> $output_file
+    done <<< "$snapshot_data"
+  else
+    echo "No snapshots found in region: $region between $start_date and $end_date"
+  fi
+done
+
+echo "Snapshot details saved to $output_file."
+
 
 
 
