@@ -40,17 +40,19 @@ def lambda_handler(event, context):
         'body': "Lifecycle policies have been created."
     }
 ---------------------------------------------------------------------------
-2
+2: Backup policy for different retentions
 ----------------------------------------------
 import boto3
 
 def lambda_handler(event, context):
-    regions = ["us-east-2", "eu-west-1"]
-    description = "Daily snapshots with 7-day retention"
+    regions = ["us-east-1"]
+    description = "EBS snapshots with varied retention periods"
     target_tag_key = "Backup"
     target_tag_value = "true"
-    schedule_name = "DailySnapshots"
-    retention_days = 7
+    
+    daily_retention_days = 7
+    weekly_retention_days = 28  # Retain weekly snapshots for 4 weeks (1 month)
+    monthly_retention_days = 180  # Retain monthly snapshots for 6 months
 
     # Get AWS account ID
     sts_client = boto3.client('sts')
@@ -62,45 +64,40 @@ def lambda_handler(event, context):
 
         # Create lifecycle policy for EBS volumes
         ebs_policy_response = dlm_client.create_lifecycle_policy(
-            ExecutionRoleArn=arn:aws:iam::589662475172:role/newlifecycle,
-            Description=f"{description} for EBS volumes",
+            ExecutionRoleArn=role_arn,
+            Description=description,
             State='ENABLED',
             PolicyDetails={
                 'ResourceTypes': ['VOLUME'],
                 'TargetTags': [{'Key': target_tag_key, 'Value': target_tag_value}],
-                'Schedules': [{
-                    'Name': f"{schedule_name}EBS",
-                    'CreateRule': {'Interval': 24, 'IntervalUnit': 'HOURS'},
-                    'RetainRule': {'Count': retention_days}
-                }]
+                'Schedules': [
+                    {
+                        'Name': "DailySnapshotEBS",
+                        'CreateRule': {'Interval': 24, 'IntervalUnit': 'HOURS'},
+                        'RetainRule': {'Count': daily_retention_days}
+                    },
+                    {
+                        'Name': "WeeklySnapshotEBS",
+                        'CreateRule': {'Interval': 24, 'IntervalUnit': 'HOURS'},
+                        'RetainRule': {'Count': weekly_retention_days},
+                        'TagsToAdd': [{'Key': 'Frequency', 'Value': 'Weekly'}],
+                        'CopyTags': True
+                    },
+                    {
+                        'Name': "MonthlySnapshotEBS",
+                        'CreateRule': {'Interval': 24, 'IntervalUnit': 'HOURS'},
+                        'RetainRule': {'Count': monthly_retention_days},
+                        'TagsToAdd': [{'Key': 'Frequency', 'Value': 'Monthly'}],
+                        'CopyTags': True
+                    }
+                ]
             }
         )
 
         ebs_policy_id = ebs_policy_response['PolicyId']
         print(f"Created EBS lifecycle policy in region {region} with policy ID {ebs_policy_id}")
 
-        # Create lifecycle policy for AMIs
-        ami_policy_response = dlm_client.create_lifecycle_policy(
-            ExecutionRoleArn=arn:aws:iam::589662475172:role/newlifecycle,
-            Description=f"{description} for AMIs",
-            State='ENABLED',
-            PolicyDetails={
-                'ResourceTypes': ['INSTANCE'],
-                'TargetTags': [{'Key': target_tag_key, 'Value': target_tag_value}],
-                'Schedules': [{
-                    'Name': f"{schedule_name}AMI",
-                    'CreateRule': {'Interval': 24, 'IntervalUnit': 'HOURS'},
-                    'RetainRule': {'Count': retention_days},
-                    'CopyTags': True
-                }]
-            }
-        )
-
-        ami_policy_id = ami_policy_response['PolicyId']
-        print(f"Created AMI lifecycle policy in region {region} with policy ID {ami_policy_id}")
-
     return {
         'statusCode': 200,
-        'body': "Lifecycle policies for EBS volumes and AMIs have been created."
+        'body': "Lifecycle policies for EBS volumes have been created."
     }
-
