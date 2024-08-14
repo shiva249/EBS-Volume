@@ -64,3 +64,72 @@ if ($service.Status -eq "Running") {
 }
 
 Write-Output "CloudWatch Agent setup completed."
+---------
+2.
+----------
+# Define the S3 bucket URL for the CloudWatch Agent installer
+$installerUrl = "https://your-s3-bucket-name.s3.amazonaws.com/path-to-your-folder/amazon-cloudwatch-agent.msi"
+$installerPath = "$env:USERPROFILE\Downloads\amazon-cloudwatch-agent.msi"
+
+# Download the CloudWatch Agent MSI installer from the S3 bucket
+Write-Output "Downloading CloudWatch Agent from S3 bucket..."
+Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+
+# Install the CloudWatch Agent
+Write-Output "Installing CloudWatch Agent..."
+Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet"
+
+# Define the CloudWatch Agent configuration file content
+$configContent = @'
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "Administrator"
+  },
+  "metrics": {
+    "append_dimensions": {
+      "InstanceId": "${aws:InstanceId}"
+    },
+    "metrics_collected": {
+      "Memory": {
+        "measurement": [
+          "AvailableMBytes",
+          "PercentUsedMemory"
+        ],
+        "metrics_collection_interval": 60
+      },
+      "Disk": {
+        "resources": [
+          "*"
+        ],
+        "measurement": [
+          "FreeSpace",
+          "PercentFreeSpace"
+        ],
+        "metrics_collection_interval": 60
+      }
+    }
+  }
+}
+'@
+
+# Define the path for the configuration file
+$configPath = "C:\Program Files\Amazon\AmazonCloudWatchAgent\config.json"
+
+# Write the configuration content to the configuration file
+Write-Output "Creating CloudWatch Agent configuration file..."
+$configContent | Out-File -FilePath $configPath -Encoding utf8
+
+# Start the CloudWatch Agent with the new configuration
+Write-Output "Starting CloudWatch Agent..."
+& "C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1" -a fetch-config -m ec2 -c file:"$configPath" -s
+
+# Verify that the CloudWatch Agent service is running
+$service = Get-Service -Name "AmazonCloudWatchAgent"
+if ($service.Status -eq "Running") {
+    Write-Output "Amazon CloudWatch Agent is running."
+} else {
+    Write-Output "Failed to start Amazon CloudWatch Agent."
+}
+
+Write-Output "CloudWatch Agent setup completed."
