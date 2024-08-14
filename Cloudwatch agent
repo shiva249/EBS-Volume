@@ -247,3 +247,128 @@ if ($service.Status -eq "Running") {
 }
 
 Write-Output "CloudWatch Agent setup completed."
+-----
+4
+-----
+# Function to check if AWS CLI is installed
+function Check-AWSCLIInstalled {
+    $awsCliPath = (Get-Command aws -ErrorAction SilentlyContinue)?.Source
+    if ($awsCliPath) {
+        Write-Output "AWS CLI is installed at $awsCliPath."
+        return $true
+    } else {
+        Write-Output "AWS CLI is not installed."
+        return $false
+    }
+}
+
+# Function to install AWS CLI
+function Install-AWSCLI {
+    Write-Output "Downloading AWS CLI installer from S3 bucket..."
+    $s3BucketPath = "s3://your-s3-bucket-name/path-to-your-folder/AWSCLIV2.msi"
+    $localInstallerPath = "$env:USERPROFILE\Downloads\AWSCLIV2.msi"
+
+    # Copy AWS CLI installer from S3 bucket to local machine
+    aws s3 cp $s3BucketPath $localInstallerPath
+
+    # Check if the file was copied successfully
+    if (Test-Path $localInstallerPath) {
+        Write-Output "AWS CLI installer successfully copied to $localInstallerPath."
+    } else {
+        Write-Error "Failed to copy AWS CLI installer from S3."
+        exit 1
+    }
+
+    Write-Output "Installing AWS CLI..."
+    Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i", "`"$localInstallerPath`"", "/quiet"
+
+    # Check if AWS CLI was successfully installed
+    if (Check-AWSCLIInstalled) {
+        Write-Output "AWS CLI installed successfully."
+    } else {
+        Write-Error "Failed to install AWS CLI."
+        exit 1
+    }
+}
+
+# Check if AWS CLI is installed, if not, install it
+if (-not (Check-AWSCLIInstalled)) {
+    Install-AWSCLI
+} else {
+    Write-Output "AWS CLI is already installed."
+}
+
+# Define the S3 bucket path and local path for the CloudWatch Agent installer
+$s3BucketPath = "s3://your-s3-bucket-name/path-to-your-folder/amazon-cloudwatch-agent.msi"
+$localInstallerPath = "$env:USERPROFILE\Downloads\amazon-cloudwatch-agent.msi"
+
+# Copy the CloudWatch Agent MSI installer from S3 to the local machine
+Write-Output "Copying CloudWatch Agent MSI from S3 to local machine..."
+aws s3 cp $s3BucketPath $localInstallerPath
+
+# Check if the file was copied successfully
+if (Test-Path $localInstallerPath) {
+    Write-Output "CloudWatch Agent MSI successfully copied to $localInstallerPath."
+} else {
+    Write-Error "Failed to copy CloudWatch Agent MSI from S3."
+    exit 1
+}
+
+# Install the CloudWatch Agent
+Write-Output "Installing CloudWatch Agent..."
+Start-Process -Wait -FilePath msiexec.exe -ArgumentList "/i", "`"$localInstallerPath`"", "/quiet"
+
+# Define the CloudWatch Agent configuration file content
+$configContent = @'
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "Administrator"
+  },
+  "metrics": {
+    "append_dimensions": {
+      "InstanceId": "${aws:InstanceId}"
+    },
+    "metrics_collected": {
+      "Memory": {
+        "measurement": [
+          "AvailableMBytes",
+          "PercentUsedMemory"
+        ],
+        "metrics_collection_interval": 60
+      },
+      "Disk": {
+        "resources": [
+          "*"
+        ],
+        "measurement": [
+          "FreeSpace",
+          "PercentFreeSpace"
+        ],
+        "metrics_collection_interval": 60
+      }
+    }
+  }
+}
+'@
+
+# Define the path for the configuration file
+$configPath = "C:\Program Files\Amazon\AmazonCloudWatchAgent\config.json"
+
+# Write the configuration content to the configuration file
+Write-Output "Creating CloudWatch Agent configuration file..."
+$configContent | Out-File -FilePath $configPath -Encoding utf8
+
+# Start the CloudWatch Agent with the new configuration
+Write-Output "Starting CloudWatch Agent..."
+& "C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1" -a fetch-config -m ec2 -c file:"$configPath" -s
+
+# Verify that the CloudWatch Agent service is running
+$service = Get-Service -Name "AmazonCloudWatchAgent"
+if ($service.Status -eq "Running") {
+    Write-Output "Amazon CloudWatch Agent is running."
+} else {
+    Write-Error "Failed to start Amazon CloudWatch Agent."
+}
+
+Write-Output "CloudWatch Agent setup completed."
