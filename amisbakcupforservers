@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Set your instance IDs
+INSTANCE_IDS=("i-0f4a7ff52a80373bc")
+
+# Loop through each instance and create an AMI
+for INSTANCE_ID in "${INSTANCE_IDS[@]}"; do
+    # Create AMI
+    AMI_ID=$(aws ec2 create-image --instance-id $INSTANCE_ID --name "Backup-$INSTANCE_ID-$(date +%Y-%m-%d)" --no-reboot --output text)
+    
+    if [ $? -eq 0 ]; then
+        echo "Successfully created AMI: $AMI_ID for Instance: $INSTANCE_ID"
+    else
+        echo "Failed to create AMI for Instance: $INSTANCE_ID"
+    fi
+done
+
+
+----------------------------
+
+import boto3
+from datetime import datetime
+
+def lambda_handler(event, context):
+    # Set your instance IDs
+    instance_ids = ["i-0f4a7ff52a80373bc"]
+    
+    # Initialize the EC2 client
+    ec2_client = boto3.client('ec2')
+    
+    # Loop through each instance and create an AMI
+    for instance_id in instance_ids:
+        try:
+            # Create AMI
+            ami_name = f"Backup-{instance_id}-{datetime.now().strftime('%Y-%m-%d')}"
+            response = ec2_client.create_image(
+                InstanceId=instance_id,
+                Name=ami_name,
+                NoReboot=True
+            )
+            ami_id = response['ImageId']
+            print(f"Successfully created AMI: {ami_id} for Instance: {instance_id}")
+        except Exception as e:
+            print(f"Failed to create AMI for Instance: {instance_id}, Error: {str(e)}")
+
+    return {
+        'statusCode': 200,
+        'body': 'AMI creation process completed.'
+    }
+---------------------------------
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:CreateImage",
+                "ec2:DescribeInstances",
+                "ec2:CreateTags",
+                "ec2:DescribeImages"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
