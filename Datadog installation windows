@@ -5,18 +5,28 @@ $ddSite = "datadoghq.eu"
 $configFilePath = "C:\ProgramData\Datadog\datadog.yaml"
 $backupFilePath = "C:\ProgramData\Datadog\datadog.yaml.bkp"
 
+# Install Datadog agent (replace the URL with the correct Windows installer link if needed)
+Write-Host "Downloading and installing the Datadog agent..."
+Invoke-WebRequest -Uri "https://s3.amazonaws.com/dd-agent/datadog-agent.msi" -OutFile "datadog-agent.msi"
+Start-Process -FilePath "msiexec.exe" -ArgumentList "/i datadog-agent.msi APIKEY=$ddApiKey SITE=$ddSite /qn" -Wait
+Remove-Item -Path "datadog-agent.msi"
+
 # Stop the Datadog agent service
+Write-Host "Stopping the Datadog agent service..."
 Stop-Service -Name "datadogagent"
 
 # Set file permissions
+Write-Host "Setting file permissions..."
 icacls $configFilePath /inheritance:r /grant:r "NT AUTHORITY\SYSTEM:F" "Administrators:F"
 
 # Backup existing configuration
+Write-Host "Backing up the existing configuration file..."
 If (Test-Path $configFilePath) {
     Move-Item -Path $configFilePath -Destination $backupFilePath
 }
 
 # Write new configuration
+Write-Host "Writing new configuration..."
 $newConfig = @"
 api_key: $ddApiKey
 site: $ddSite
@@ -29,7 +39,8 @@ collect_ec2_tags: true
 
 $newConfig | Set-Content -Path $configFilePath -Encoding UTF8
 
-# Change ownership (Windows does not require this step like Linux)
-
 # Restart the Datadog agent service
+Write-Host "Restarting the Datadog agent service..."
 Start-Service -Name "datadogagent"
+
+Write-Host "Datadog agent configuration completed successfully!"
