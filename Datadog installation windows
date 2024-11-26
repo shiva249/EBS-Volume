@@ -1,0 +1,35 @@
+# Define variables
+$ddAgentVersion = "7"
+$ddApiKey = "10c1d1714f99e96696f1817d627736d88"
+$ddSite = "datadoghq.eu"
+$configFilePath = "C:\ProgramData\Datadog\datadog.yaml"
+$backupFilePath = "C:\ProgramData\Datadog\datadog.yaml.bkp"
+
+# Stop the Datadog agent service
+Stop-Service -Name "datadogagent"
+
+# Set file permissions
+icacls $configFilePath /inheritance:r /grant:r "NT AUTHORITY\SYSTEM:F" "Administrators:F"
+
+# Backup existing configuration
+If (Test-Path $configFilePath) {
+    Move-Item -Path $configFilePath -Destination $backupFilePath
+}
+
+# Write new configuration
+$newConfig = @"
+api_key: $ddApiKey
+site: $ddSite
+process_config:
+  enabled: true
+logs_enabled: true
+log_level: 'warn'
+collect_ec2_tags: true
+"@
+
+$newConfig | Set-Content -Path $configFilePath -Encoding UTF8
+
+# Change ownership (Windows does not require this step like Linux)
+
+# Restart the Datadog agent service
+Start-Service -Name "datadogagent"
