@@ -1,0 +1,72 @@
+# Define variables
+$ddAgentVersion = "7"
+$ddApiKey = "ab8d01674028bd1024c5c682c0372113d"  # Replace with your actual API key
+$ddSite = "datadoghq.eu"
+$configFilePath = "C:\ProgramData\Datadog\datadog.yaml"
+$backupFilePath = "C:\ProgramData\Datadog\datadog.yaml.bkp"
+$installerURL = "https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-7-latest.amd64.msi"
+
+# Run script as administrator if not already running as admin
+$currUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal $currUser
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "Restarting script as Administrator..."
+    Start-Process powershell.exe -ArgumentList "-File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
+
+# Install Datadog agent
+Write-Host "Downloading and installing Datadog agent..."
+Start-Process -Wait msiexec -ArgumentList "/qn /i `"$installerURL`""
+
+# Stop the Datadog agent service before modifying the configuration
+Write-Host "Stopping the Datadog agent service..."
+Stop-Service -Name "datadogagent" -Force -ErrorAction SilentlyContinue
+
+# Ensure the Datadog directory exists
+if (!(Test-Path "C:\ProgramData\Datadog")) {
+    Write-Host "Creating Datadog configuration directory..."
+    New-Item -ItemType Directory -Path "C:\ProgramData\Datadog" -Force
+}
+
+# Set file permissions
+Write-Host "Setting file permissions..."
+icacls $configFilePath /inheritance:r /grant "NT AUTHORITY\SYSTEM:F" "Administrators:F"
+
+# Backup existing configuration file if it exists
+Write-Host "Backing up existing configuration file..."
+if (Test-Path $configFilePath) {
+    Move-Item -Path $configFilePath -Destination $backupFilePath -Force
+    Write-Host "Backup created at: $backupFilePath"
+} else {
+    Write-Host "No existing configuration found. Proceeding with new configuration..."
+}
+
+# Define new Datadog configuration
+Write-Host "Writing new configuration file..."
+$newConfig = @"
+api_key: $ddApiKey
+site: $ddSite
+process_config:
+  enabled: true
+logs_enabled: true
+log_level: 'warn'
+collect_ec2_tags: true
+"@
+
+# Write configuration to file
+$newConfig | Out-File -FilePath $configFilePath -Encoding utf8 -Force
+
+# Verify if the configuration file is created
+if (Test-Path $configFilePath) {
+    Write-Host "Configuration file created successfully at: $configFilePath"
+} else {
+    Write-Host "Failed to create configuration file!"
+    exit 1
+}
+
+# Restart the Datadog agent service
+Write-Host "Starting Datadog agent service..."
+Start-Service -Name "datadogagent"
+
+Write-Host "Datadog agent installation and configuration completed successfully!"
