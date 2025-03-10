@@ -1,0 +1,40 @@
+# Stop the Datadog agent service
+Stop-Service -Name "datadog-agent"
+
+# Set permissions for the datadog.yaml file
+$datadogConfigPath = "C:\ProgramData\Datadog\datadog.yaml"
+$backupPath = "C:\ProgramData\Datadog\datadog.yaml.bkp"
+
+# Backup existing config file
+Copy-Item -Path $datadogConfigPath -Destination $backupPath -Force
+
+# Define the new configuration
+$datadogConfig = @"
+api_key: 3288dc3e3c258b17c70265f8ec3db9632
+site: datadoghq.eu
+process_config:
+  enabled: true
+system_probe_config:
+  enabled: true
+logs_enabled: true
+log_level: DEBUG
+collect_ec2_tags: true
+apm_config:
+  # receiver_socket: /opt/datadog/apm/inject/run/apm.socket
+  # use_dogstatsd: true
+  # dogstatsd_socket: /opt/datadog/apm/inject/run/dsd.socket
+remote_configuration:
+  # enabled: true
+"@
+
+# Write the new configuration to the file
+$datadogConfig | Set-Content -Path $datadogConfigPath -Force
+
+# Set appropriate permissions (equivalent to chown)
+$acl = Get-Acl -Path $datadogConfigPath
+$datadogUser = New-Object System.Security.Principal.NTAccount("DatadogUser")  # Replace with actual Datadog service account
+$acl.SetOwner($datadogUser)
+Set-Acl -Path $datadogConfigPath -AclObject $acl
+
+# Restart the Datadog agent service
+Restart-Service -Name "datadog-agent"
