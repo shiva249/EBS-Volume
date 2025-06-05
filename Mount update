@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# This script configures Datadog Agent to collect disk usage by mount point
+# Can be used via SSM Run Command
+
+set -e
+
+echo "[INFO] Updating Datadog disk configuration..."
+
+DD_CONFIG="/etc/datadog-agent/conf.d/disk.d/conf.yaml"
+
+# Backup existing config
+cp -p "$DD_CONFIG" "${DD_CONFIG}.bak"
+
+# Create updated config
+cat <<EOF > "$DD_CONFIG"
+init_config:
+
+instances:
+  - use_mount: true
+    all_partitions: true
+    excluded_filesystems:
+      - tmpfs
+      - devtmpfs
+EOF
+
+echo "[INFO] Restarting Datadog Agent..."
+systemctl restart datadog-agent
+
+echo "[INFO] Waiting for agent to restart and apply config..."
+sleep 10
+
+echo "[INFO] Checking updated disk metrics tags..."
+datadog-agent status | grep -A 10 'disk (system.disk)' || echo "[WARN] Disk section not found."
+
+echo "[INFO] Script completed."
