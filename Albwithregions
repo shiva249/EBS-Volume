@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Output CSV file
+OUTPUT_FILE="loadbalancer_targetgroups.csv"
+REGIONS=("us-east-1" "us-east-2")
+
+# CSV Header
+echo "Region,LoadBalancerName,LoadBalancerARN,TargetGroupName,TargetGroupARN" > "$OUTPUT_FILE"
+
+for region in "${REGIONS[@]}"; do
+  echo "Fetching details from region: $region"
+  
+  # Get all Load Balancers in the region
+  aws elbv2 describe-load-balancers --region "$region" \
+    --query 'LoadBalancers[*].[LoadBalancerName,LoadBalancerArn]' --output text | while read lb_name lb_arn; do
+    
+    # Get Target Groups associated with this Load Balancer
+    target_groups=$(aws elbv2 describe-target-groups --region "$region" --load-balancer-arn "$lb_arn" \
+                     --query 'TargetGroups[*].[TargetGroupName,TargetGroupArn]' --output text)
+    
+    if [[ -z "$target_groups" ]]; then
+      echo "$region,$lb_name,$lb_arn,," >> "$OUTPUT_FILE"
+    else
+      while read tg_name tg_arn; do
+        echo "$region,$lb_name,$lb_arn,$tg_name,$tg_arn" >> "$OUTPUT_FILE"
+      done <<< "$target_groups"
+    fi
+
+  done
+done
+
+echo "✅ CSV generated: $OUTPUT_FILE"
