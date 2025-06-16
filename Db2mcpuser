@@ -1,0 +1,34 @@
+#!/bin/bash
+
+SECURE_LOG="/var/log/secure"
+OUTPUT_LOG="/var/log/db2mcp_login.log"
+TIMESTAMP_FILE="/var/log/db2mcp_last_check_time.log"
+
+# If timestamp file doesn't exist, initialize with 5 minutes ago
+if [ ! -f "$TIMESTAMP_FILE" ]; then
+    date -d "5 minutes ago" +"%Y-%m-%d %H:%M:%S" > "$TIMESTAMP_FILE"
+fi
+
+# Get the last check time
+LAST_CHECK=$(cat "$TIMESTAMP_FILE")
+
+# Update timestamp for next run
+date +"%Y-%m-%d %H:%M:%S" > "$TIMESTAMP_FILE"
+
+# Extract new login events since last check
+awk -v last="$LAST_CHECK" '
+BEGIN {
+    cmd = "date -d \"" last "\" +%s"
+    cmd | getline last_epoch
+    close(cmd)
+}
+{
+    log_date = $1 " " $2 " " $3
+    cmd = "date -d \"" log_date "\" +%s"
+    cmd | getline log_epoch
+    close(cmd)
+    if (log_epoch > last_epoch && $0 ~ /db2mcp/ && $0 ~ /Accepted/) {
+        print $0
+    }
+}
+' "$SECURE_LOG" >> "$OUTPUT_LOG"
