@@ -1,0 +1,32 @@
+#!/bin/bash
+
+HIST_LOG="/var/log/db2_users_commands.log"
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+
+# Loop through all directories in /db2/ that start with 'db2'
+for userdir in /db2/db2*/; do
+    user=$(basename "$userdir")
+    histfile="$userdir/.bash_history"
+    lastfile="/var/log/.${user}_last_history"
+
+    # Initialize tracking file if not exists
+    if [ ! -f "$lastfile" ]; then
+        echo 0 > "$lastfile"
+    fi
+
+    # Get previous line count
+    last_line=$(cat "$lastfile")
+
+    # Get new commands if .bash_history exists
+    if [ -f "$histfile" ]; then
+        total_lines=$(wc -l < "$histfile")
+        new_lines=$((total_lines - last_line))
+
+        if [ "$new_lines" -gt 0 ]; then
+            tail -n "$new_lines" "$histfile" | while read -r cmd; do
+                echo "$TIMESTAMP | $user ran: $cmd" >> "$HIST_LOG"
+            done
+            echo "$total_lines" > "$lastfile"
+        fi
+    fi
+done
