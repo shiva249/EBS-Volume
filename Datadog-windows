@@ -1,0 +1,45 @@
+# Configuration
+$datadogApiKey = "<YOUR_DATADOG_API_KEY>"  # Replace with your actual API key
+$ddSite = "datadoghq.com"                  # Use datadoghq.eu for EU site
+$installerPath = "C:\datadog-agent.msi"
+$configFilePath = "C:\ProgramData\Datadog\datadog.yaml"
+$backupFilePath = "C:\ProgramData\Datadog\datadog.yaml.bkp"
+
+# Download the Datadog agent installer
+Invoke-WebRequest -Uri "https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-7-latest.amd64.msi" -OutFile $installerPath
+
+# Install the Datadog agent
+Start-Process -Wait -FilePath "msiexec.exe" -ArgumentList "/qn /i $installerPath APIKEY=$datadogApiKey SITE=$ddSite"
+
+# Clean up installer
+if (Test-Path $installerPath) {
+    Remove-Item -Path $installerPath -Force
+}
+
+# Wait for service to appear (optional, to avoid race condition)
+Start-Sleep -Seconds 10
+
+# Set the Datadog Agent service to start automatically and start it
+Set-Service -Name "datadogagent" -StartupType Automatic
+Start-Service -Name "datadogagent"
+
+# Backup existing config if exists
+if (Test-Path $configFilePath) {
+    Move-Item -Path $configFilePath -Destination $backupFilePath -Force
+    Write-Host "Existing config backed up to $backupFilePath"
+}
+
+# Create new config
+$config = @"
+api_key: $datadogApiKey
+site: $ddSite
+logs_enabled: true
+log_level: info
+tags:
+  - env:prod
+"@
+
+# Write new config
+$config | Out-File -FilePath $configFilePath -Encoding utf8 -Force
+
+Write-Host "Datadog agent installation and configuration completed."
