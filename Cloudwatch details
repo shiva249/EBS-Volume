@@ -63,3 +63,25 @@ $1=="ALARMS" {
 }' /tmp/alarms.txt >> $OUTPUT_FILE
 
 echo "✅ Alarms exported to: $OUTPUT_FILE"
+
+
+-------
+#!/bin/bash
+
+OUTPUT_DIR="/home/ec2-user/cloudwatch_export"
+mkdir -p $OUTPUT_DIR
+
+OUTPUT_FILE="$OUTPUT_DIR/cloudwatch_alarms.csv"
+
+echo "📥 Fetching CloudWatch Alarms..."
+
+# Write CSV header
+echo "AlarmName,StateValue,StateUpdatedTimestamp,MetricName,Namespace,Threshold,ComparisonOperator,EvaluationPeriods" > $OUTPUT_FILE
+
+# Use AWS CLI query to extract only required fields
+aws cloudwatch describe-alarms \
+  --query "MetricAlarms[*].[AlarmName,StateValue,StateUpdatedTimestamp,MetricName,Namespace,Threshold,ComparisonOperator,EvaluationPeriods]" \
+  --output text | \
+awk 'BEGIN{OFS=","} {print $1,$2,$3,$4,$5,$6,$7,$8}' >> $OUTPUT_FILE
+
+echo "✅ Alarms exported to: $OUTPUT_FILE"
