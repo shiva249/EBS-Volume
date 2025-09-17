@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Output folder
+OUTPUT_DIR="/home/ec2-user/cloudwatch_export"
+mkdir -p $OUTPUT_DIR
+
+echo "📥 Fetching CloudWatch Metrics..."
+aws cloudwatch list-metrics --output text \
+| awk 'BEGIN{OFS=","; print "Namespace,MetricName,Dimensions"} \
+     {dims=""; for(i=3;i<=NF;i++) dims=dims $i ";"; print $1,$2,dims}' \
+> $OUTPUT_DIR/cloudwatch_metrics.csv
+
+
+echo "📥 Fetching CloudWatch Alarms..."
+aws cloudwatch describe-alarms --output text \
+| awk 'BEGIN{OFS=","; print "AlarmName,State,MetricName,Namespace,Threshold,Actions"} \
+     /^ALARMS/ {print $2,$4,$11,$10,$17,$22}' \
+> $OUTPUT_DIR/cloudwatch_alarms.csv
+
+
+echo "📥 Fetching CloudWatch Log Groups..."
+aws logs describe-log-groups --output text \
+| awk 'BEGIN{OFS=","; print "LogGroupName,RetentionDays,StoredBytes,ARN"} \
+     /^LOGGROUPS/ {print $2,$3,$4,$5}' \
+> $OUTPUT_DIR/cloudwatch_loggroups.csv
+
+
+echo "✅ Export complete!"
+echo "Files saved in: $OUTPUT_DIR"
+ls -lh $OUTPUT_DIR
