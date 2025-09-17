@@ -28,3 +28,38 @@ aws logs describe-log-groups --output text \
 echo "✅ Export complete!"
 echo "Files saved in: $OUTPUT_DIR"
 ls -lh $OUTPUT_DIR
+
+
+--------------
+#!/bin/bash
+
+# Output folder
+OUTPUT_DIR="/home/ec2-user/cloudwatch_export"
+mkdir -p $OUTPUT_DIR
+
+OUTPUT_FILE="$OUTPUT_DIR/cloudwatch_alarms.csv"
+
+echo "📥 Fetching CloudWatch Alarms..."
+
+# Write CSV header
+echo "AlarmName,StateValue,StateUpdatedTimestamp,AlarmType,MetricName,Namespace,Threshold,ComparisonOperator,EvaluationPeriods,Condition" > $OUTPUT_FILE
+
+# Use AWS CLI JSON output and parse with awk-friendly text
+aws cloudwatch describe-alarms --output text > /tmp/alarms.txt
+
+awk '
+BEGIN {FS="\t"}
+$1=="ALARMS" {
+    AlarmName=$2
+    StateValue=$4
+    UpdatedTime=$7
+    MetricName=$11
+    Namespace=$10
+    Threshold=$17
+    Comparison=$16
+    Eval=$15
+    Condition="Threshold=" Threshold " " Comparison " for " Eval " periods"
+    print AlarmName "," StateValue "," UpdatedTime ",MetricAlarm," MetricName "," Namespace "," Threshold "," Comparison "," Eval "," Condition
+}' /tmp/alarms.txt >> $OUTPUT_FILE
+
+echo "✅ Alarms exported to: $OUTPUT_FILE"
