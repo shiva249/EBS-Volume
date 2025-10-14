@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# File to fix permissions for
+FILE="/path/to/your/file.log"
+
+# Desired owner and permissions
+OWNER="dd-agent"
+GROUP="dd-agent"
+PERMISSIONS="777"
+
+# Check if file exists
+if [ -f "$FILE" ]; then
+    current_owner=$(stat -c "%U" "$FILE")
+    current_group=$(stat -c "%G" "$FILE")
+    current_perms=$(stat -c "%a" "$FILE")
+
+    # Change ownership if needed
+    if [ "$current_owner" != "$OWNER" ] || [ "$current_group" != "$GROUP" ]; then
+        chown $OWNER:$GROUP "$FILE"
+        echo "$(date): Changed ownership of $FILE to $OWNER:$GROUP" >> /var/log/fix_permissions.log
+    fi
+
+    # Change permissions if needed
+    if [ "$current_perms" != "$PERMISSIONS" ]; then
+        chmod $PERMISSIONS "$FILE"
+        echo "$(date): Changed permissions of $FILE to $PERMISSIONS" >> /var/log/fix_permissions.log
+    fi
+else
+    echo "$(date): File $FILE not found" >> /var/log/fix_permissions.log
+fi
