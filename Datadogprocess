@@ -1,0 +1,7 @@
+init_config:
+
+instances:
+  - name: "on-premisesdatagatewaysvc"
+    service: true
+    processes:
+      - "PBIEgwService"
