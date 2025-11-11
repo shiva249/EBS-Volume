@@ -5,3 +5,13 @@ instances:
     service: true
     processes:
       - "PBIEgwService"
+
+
+init_config:
+
+instances:
+  - name: powerbi_gateway
+    search_string:
+      - Microsoft.Mashup.Container.NetFX45.exe
+    tags:
+      - service:powerbigateway
