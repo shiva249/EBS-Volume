@@ -1,0 +1,21 @@
+#!/bin/bash
+
+DD_CONF="/etc/datadog-agent/datadog.yaml"
+BACKUP="/etc/datadog-agent/datadog.yaml.bak.$(date +%F_%T)"
+
+echo "Taking backup..."
+cp $DD_CONF $BACKUP
+
+echo "Disabling logs and DEBUG log level..."
+
+# Disable logs
+sed -i 's/^logs_enabled:.*/logs_enabled: false/' $DD_CONF
+
+# Remove or comment log_level DEBUG
+sed -i 's/^log_level:.*/# log_level: INFO/' $DD_CONF
+
+echo "Restarting Datadog Agent..."
+systemctl restart datadog-agent
+
+echo "Datadog Agent restarted successfully."
+echo "Backup stored at: $BACKUP"
