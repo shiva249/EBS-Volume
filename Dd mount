@@ -1,0 +1,7 @@
+init_config:
+
+instances:
+  - use_mount: true
+    excluded_filesystems:
+      - tmpfs
+      - devtmpfs
