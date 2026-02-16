@@ -1,0 +1,106 @@
+#!/bin/bash
+
+############################################
+# Datadog Full Installation & Configuration
+############################################
+
+DD_API_KEY="YOUR_API_KEY"
+DD_SITE="datadoghq.eu"
+DD_AGENT_MAJOR_VERSION=7
+
+echo "🔹 Installing Datadog Agent..."
+
+DD_AGENT_MAJOR_VERSION=$DD_AGENT_MAJOR_VERSION \
+DD_API_KEY=$DD_API_KEY \
+DD_SITE=$DD_SITE \
+bash -c "$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script.sh)"
+
+if [ $? -ne 0 ]; then
+    echo "❌ Installation failed"
+    exit 1
+fi
+
+############################################
+# Stop Agent Before Config Changes
+############################################
+
+echo "🔹 Stopping Datadog Agent..."
+sudo systemctl stop datadog-agent
+
+############################################
+# Update Main datadog.yaml
+############################################
+
+echo "🔹 Configuring datadog.yaml..."
+
+sudo mv /etc/datadog-agent/datadog.yaml \
+        /etc/datadog-agent/datadog.yaml.bkp
+
+sudo cat <<EOF | sudo tee /etc/datadog-agent/datadog.yaml > /dev/null
+api_key: $DD_API_KEY
+site: $DD_SITE
+
+process_config:
+  process_collection:
+    enabled: "true"
+
+system_probe_config:
+  enabled: true
+
+logs_enabled: true
+log_level: DEBUG
+
+collect_ec2_tags: true
+EOF
+
+############################################
+# Set Proper Permissions (Like Screenshot)
+############################################
+
+echo "🔹 Setting file permissions..."
+
+sudo chown dd-agent:dd-agent /etc/datadog-agent/datadog.yaml
+sudo chmod 640 /etc/datadog-agent/datadog.yaml
+
+############################################
+# Configure Disk Integration (use_mount: true)
+############################################
+
+echo "🔹 Configuring Disk Integration..."
+
+DISK_DIR="/etc/datadog-agent/conf.d/disk.d"
+DISK_CONF="$DISK_DIR/conf.yaml"
+
+if [ ! -f "$DISK_CONF" ]; then
+    sudo cp $DISK_DIR/conf.yaml.example $DISK_CONF
+fi
+
+sudo cat <<EOF | sudo tee $DISK_CONF > /dev/null
+instances:
+  - use_mount: true
+    excluded_filesystems:
+      - tmpfs
+      - devtmpfs
+      - overlay
+EOF
+
+sudo chown -R dd-agent:dd-agent $DISK_DIR
+sudo chmod 640 $DISK_CONF
+
+############################################
+# Restart Agent
+############################################
+
+echo "🔹 Starting Datadog Agent..."
+sudo systemctl restart datadog-agent
+
+sleep 5
+
+############################################
+# Verify Status
+############################################
+
+echo "🔹 Checking Agent Status..."
+sudo datadog-agent status
+
+echo "✅ Datadog installation & configuration completed successfully."
