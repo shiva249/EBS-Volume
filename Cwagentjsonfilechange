@@ -1,0 +1,61 @@
+#!/bin/bash
+
+CW_CONFIG="/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
+BACKUP_FILE="/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json.bak.$(date +%F_%T)"
+
+echo "===== Starting CloudWatch Agent Modification ====="
+
+# Check if file exists
+if [ ! -f "$CW_CONFIG" ]; then
+    echo "CloudWatch config file not found at $CW_CONFIG"
+    exit 1
+fi
+
+# Take backup
+echo "Taking backup..."
+cp "$CW_CONFIG" "$BACKUP_FILE"
+
+if [ $? -ne 0 ]; then
+    echo "Backup failed. Exiting."
+    exit 1
+fi
+
+echo "Backup saved at: $BACKUP_FILE"
+
+# Overwrite config to disable metrics collection
+echo "Disabling metrics collection..."
+
+cat <<EOF > $CW_CONFIG
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "metrics": {
+    "metrics_collected": {}
+  },
+  "logs": {
+    "logs_collected": {}
+  }
+}
+EOF
+
+echo "Configuration updated."
+
+# Restart CloudWatch agent
+echo "Restarting CloudWatch Agent..."
+
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+-a fetch-config \
+-m ec2 \
+-c file:$CW_CONFIG \
+-s
+
+if [ $? -eq 0 ]; then
+    echo "CloudWatch Agent restarted successfully."
+else
+    echo "Agent restart failed. Check logs."
+    exit 1
+fi
+
+echo "===== Completed Successfully ====="
