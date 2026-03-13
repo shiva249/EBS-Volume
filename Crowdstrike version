@@ -626,3 +626,175 @@ def lambda_handler(event, context):
         "instances_checked": len(all_rows),
         "s3_file": f"s3://{S3_BUCKET}/{S3_KEY}"
     }
+----
+
+import boto3
+import time
+import csv
+from io import StringIO
+
+# -------- REGIONS --------
+REGIONS = ["us-east-1", "eu-west-1"]
+
+# -------- S3 CONFIG --------
+S3_BUCKET = "a202115-ct-cloud-ze"
+S3_PREFIX = "crowdstrike020326/"
+FILE_NAME = "crowdstrike_version_report.csv"
+
+s3 = boto3.client('s3')
+
+
+def is_windows_instance(instance: dict) -> bool:
+    platform = instance.get('Platform')
+
+    if platform and platform.lower() == "windows":
+        return True
+
+    plat_details = instance.get('PlatformDetails', '') or ''
+    return "windows" in plat_details.lower()
+
+
+def get_instance_name(instance: dict) -> str:
+    return next(
+        (t['Value'] for t in instance.get('Tags', []) if t.get('Key') == 'Name'),
+        "N/A"
+    )
+
+
+def get_platform_label(instance: dict) -> str:
+    return "Windows" if is_windows_instance(instance) else "Linux/UNIX"
+
+
+def send_and_wait_ssm(ssm, instance_id: str, document_name: str, commands: list, timeout_seconds=120):
+
+    resp = ssm.send_command(
+        InstanceIds=[instance_id],
+        DocumentName=document_name,
+        Parameters={'commands': commands},
+        CloudWatchOutputConfig={'CloudWatchOutputEnabled': False}
+    )
+
+    command_id = resp['Command']['CommandId']
+    start = time.time()
+
+    while True:
+
+        try:
+            inv = ssm.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=instance_id
+            )
+
+        except ssm.exceptions.InvocationDoesNotExist:
+            time.sleep(3)
+            continue
+
+        status = inv.get("Status", "")
+
+        if status in ("Success", "Failed", "Cancelled", "TimedOut"):
+
+            stdout = (inv.get('StandardOutputContent') or "").strip()
+            stderr = (inv.get('StandardErrorContent') or "").strip()
+
+            if status == "Success":
+                return stdout or "Not Found"
+
+            return f"{status}: {stderr or stdout or 'No output'}"
+
+        if time.time() - start > timeout_seconds:
+            return "TimedOut: Command exceeded wait time"
+
+        time.sleep(3)
+
+
+def lambda_handler(event, context):
+
+    instance_data = []
+
+    for region in REGIONS:
+
+        ec2 = boto3.client('ec2', region_name=region)
+        ssm = boto3.client('ssm', region_name=region)
+
+        paginator = ec2.get_paginator('describe_instances')
+
+        for page in paginator.paginate():
+
+            for res in page.get("Reservations", []):
+
+                for inst in res.get("Instances", []):
+
+                    if inst['State']['Name'] != 'running':
+                        continue
+
+                    instance_id = inst["InstanceId"]
+                    name = get_instance_name(inst)
+                    platform_label = get_platform_label(inst)
+
+                    if is_windows_instance(inst):
+
+                        document = "AWS-RunPowerShellScript"
+
+                        commands = [
+                            '$exe="C:\\Program Files\\CrowdStrike\\CSFalconContainer.exe"; '
+                            'if(Test-Path $exe){(Get-Command $exe).FileVersionInfo.ProductVersion} '
+                            'else {"Not Found"}'
+                        ]
+
+                    else:
+
+                        document = "AWS-RunShellScript"
+
+                        commands = [
+                            "/opt/CrowdStrike/falconctl -g --version | awk -F'=' '{print $2}' | tr -d '\"' || echo 'Not Found'"
+                        ]
+
+                    try:
+
+                        output = send_and_wait_ssm(ssm, instance_id, document, commands)
+
+                        cs_version = output.splitlines()[0] if output else "Unknown"
+
+                    except Exception as e:
+
+                        cs_version = f"Error: {str(e)}"
+
+                    instance_data.append({
+                        "Region": region,
+                        "InstanceName": name,
+                        "InstanceID": instance_id,
+                        "OSPlatform": platform_label,
+                        "CrowdStrikeVersion": cs_version
+                    })
+
+    # -------- BUILD CSV --------
+
+    csv_buffer = StringIO()
+
+    writer = csv.DictWriter(
+        csv_buffer,
+        fieldnames=[
+            "Region",
+            "InstanceName",
+            "InstanceID",
+            "OSPlatform",
+            "CrowdStrikeVersion"
+        ]
+    )
+
+    writer.writeheader()
+    writer.writerows(instance_data)
+
+    s3_key = f"{S3_PREFIX}{FILE_NAME}"
+
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=s3_key,
+        Body=csv_buffer.getvalue()
+    )
+
+    return {
+        "status": "Success",
+        "file": f"s3://{S3_BUCKET}/{s3_key}",
+        "records": len(instance_data)
+    }
