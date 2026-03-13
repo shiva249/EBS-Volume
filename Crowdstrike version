@@ -159,3 +159,153 @@ def lambda_handler(event, context):
         "file": f"s3://{S3_BUCKET}/{s3_key}",
         "records": len(instance_data)
     }
+------------------------
+
+
+import boto3
+import time
+import csv
+from io import StringIO
+
+ec2 = boto3.client('ec2')
+ssm = boto3.client('ssm')
+s3 = boto3.client('s3')
+
+S3_BUCKET = "a202115-ct-cloud-re"
+S3_KEY = "crowdstrike020326/crowdstrike_version_report.csv"
+
+
+def get_instances():
+
+    linux_instances = []
+    windows_instances = []
+    instance_names = {}
+
+    paginator = ec2.get_paginator('describe_instances')
+
+    for page in paginator.paginate():
+        for reservation in page['Reservations']:
+            for inst in reservation['Instances']:
+
+                if inst['State']['Name'] != 'running':
+                    continue
+
+                instance_id = inst['InstanceId']
+
+                name = "N/A"
+                for tag in inst.get("Tags", []):
+                    if tag["Key"] == "Name":
+                        name = tag["Value"]
+
+                instance_names[instance_id] = name
+
+                if inst.get("Platform") == "windows":
+                    windows_instances.append(instance_id)
+                else:
+                    linux_instances.append(instance_id)
+
+    return linux_instances, windows_instances, instance_names
+
+
+def run_ssm(instances, document, commands):
+
+    if not instances:
+        return {}
+
+    response = ssm.send_command(
+        InstanceIds=instances,
+        DocumentName=document,
+        Parameters={"commands": commands}
+    )
+
+    command_id = response['Command']['CommandId']
+
+    time.sleep(20)
+
+    results = {}
+
+    for instance in instances:
+
+        try:
+            output = ssm.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=instance
+            )
+
+            version = output['StandardOutputContent'].strip()
+
+            if not version:
+                version = "Not Found"
+
+        except Exception:
+            version = "Error"
+
+        results[instance] = version
+
+    return results
+
+
+def lambda_handler(event, context):
+
+    linux_instances, windows_instances, names = get_instances()
+
+    linux_cmd = ["rpm -qa | grep falcon-sensor || echo 'Not Found'"]
+
+    windows_cmd = [
+        '$exe="C:\\Program Files\\CrowdStrike\\CSFalconContainer.exe"; '
+        'if(Test-Path $exe){(Get-Command $exe).FileVersionInfo.ProductVersion} else {"Not Found"}'
+    ]
+
+    linux_results = run_ssm(
+        linux_instances,
+        "AWS-RunShellScript",
+        linux_cmd
+    )
+
+    windows_results = run_ssm(
+        windows_instances,
+        "AWS-RunPowerShellScript",
+        windows_cmd
+    )
+
+    rows = []
+
+    for inst in linux_instances:
+        rows.append([
+            names.get(inst, "N/A"),
+            inst,
+            "Linux",
+            linux_results.get(inst, "Unknown")
+        ])
+
+    for inst in windows_instances:
+        rows.append([
+            names.get(inst, "N/A"),
+            inst,
+            "Windows",
+            windows_results.get(inst, "Unknown")
+        ])
+
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer)
+
+    writer.writerow([
+        "InstanceName",
+        "InstanceID",
+        "OSPlatform",
+        "CrowdStrikeVersion"
+    ])
+
+    writer.writerows(rows)
+
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=S3_KEY,
+        Body=csv_buffer.getvalue()
+    )
+
+    return {
+        "status": "success",
+        "instances_checked": len(rows),
+        "s3_file": f"s3://{S3_BUCKET}/{S3_KEY}"
+    }
