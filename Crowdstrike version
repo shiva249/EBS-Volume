@@ -798,3 +798,186 @@ def lambda_handler(event, context):
         "file": f"s3://{S3_BUCKET}/{s3_key}",
         "records": len(instance_data)
     }
+------------
+import boto3
+import time
+import csv
+from io import StringIO
+from datetime import datetime
+
+ec2 = boto3.client('ec2')
+ssm = boto3.client('ssm')
+s3 = boto3.client('s3')
+
+# -------- CONFIG --------
+S3_BUCKET = "YOUR_BUCKET_NAME"
+S3_PREFIX = "crowdstrike-reports/"
+
+# -------- HELPERS --------
+
+def is_windows_instance(instance):
+    platform = instance.get("Platform", "")
+    if platform and platform.lower() == "windows":
+        return True
+
+    platform_details = instance.get("PlatformDetails", "")
+    return "windows" in platform_details.lower()
+
+
+def get_instance_name(instance):
+    for tag in instance.get("Tags", []):
+        if tag["Key"] == "Name":
+            return tag["Value"]
+    return "N/A"
+
+
+def wait_for_ssm(command_id, instance_id, timeout=60):
+    start = time.time()
+
+    while True:
+        try:
+            resp = ssm.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=instance_id
+            )
+
+            status = resp['Status']
+
+            if status in ['Success', 'Failed', 'Cancelled', 'TimedOut']:
+                return resp
+
+        except ssm.exceptions.InvocationDoesNotExist:
+            pass
+
+        if time.time() - start > timeout:
+            return None
+
+        time.sleep(3)
+
+
+def extract_cs_details(output):
+    if not output:
+        return "No Output", "Unknown"
+
+    lines = [l.strip() for l in output.splitlines() if l.strip()]
+    if not lines:
+        return "No Output", "Unknown"
+
+    parts = lines[0].split(",")
+
+    version = parts[0] if len(parts) > 0 else "Unknown"
+    status = parts[1] if len(parts) > 1 else "Unknown"
+
+    return version, status
+
+
+def send_ssm_command(instance_id, is_windows):
+
+    if is_windows:
+        document = "AWS-RunPowerShellScript"
+        commands = [
+            '$service = Get-Service -Name CSFalconService -ErrorAction SilentlyContinue',
+            'if ($service) {',
+            '  $status = $service.Status',
+            '  $version = (Get-Item "C:\\Program Files\\CrowdStrike\\CSFalconService.exe").VersionInfo.ProductVersion',
+            '  "$version,$status"',
+            '} else {',
+            '  "Not Found,Not Installed"',
+            '}'
+        ]
+    else:
+        document = "AWS-RunShellScript"
+        commands = [
+            'if systemctl is-active --quiet falcon-sensor; then status="running"; else status="stopped"; fi',
+            'if [ -x /opt/CrowdStrike/falconctl ]; then version=$(/opt/CrowdStrike/falconctl -g --version 2>/dev/null); '
+            'elif command -v falconctl >/dev/null 2>&1; then version=$(falconctl -g --version 2>/dev/null); '
+            'else version="Not Found"; fi',
+            'echo "$version,$status"'
+        ]
+
+    try:
+        resp = ssm.send_command(
+            InstanceIds=[instance_id],
+            DocumentName=document,
+            Parameters={"commands": commands},
+        )
+
+        command_id = resp['Command']['CommandId']
+
+        result = wait_for_ssm(command_id, instance_id)
+
+        if not result:
+            return "Timeout", "Unknown"
+
+        stdout = result.get("StandardOutputContent", "")
+        return extract_cs_details(stdout)
+
+    except Exception as e:
+        return "Error", "Unknown"
+
+
+# -------- MAIN --------
+
+def lambda_handler(event, context):
+
+    instance_data = []
+
+    paginator = ec2.get_paginator('describe_instances')
+
+    for page in paginator.paginate(
+        Filters=[{'Name': 'instance-state-name', 'Values': ['running']}]
+    ):
+        for res in page['Reservations']:
+            for inst in res['Instances']:
+
+                instance_id = inst['InstanceId']
+                name = get_instance_name(inst)
+                is_windows = is_windows_instance(inst)
+                platform = "Windows" if is_windows else "Linux"
+
+                # OPTIONAL: skip jumphost
+                tags = {t['Key']: t['Value'] for t in inst.get('Tags', [])}
+                if tags.get('Name', '').lower().startswith('jumphost'):
+                    continue
+
+                cs_version, cs_status = send_ssm_command(instance_id, is_windows)
+
+                instance_data.append({
+                    "InstanceName": name,
+                    "InstanceID": instance_id,
+                    "OSPlatform": platform,
+                    "CrowdStrikeVersion": cs_version,
+                    "CrowdStrikeStatus": cs_status
+                })
+
+    # -------- CSV --------
+    csv_buffer = StringIO()
+
+    fieldnames = [
+        "InstanceName",
+        "InstanceID",
+        "OSPlatform",
+        "CrowdStrikeVersion",
+        "CrowdStrikeStatus"
+    ]
+
+    writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(instance_data)
+
+    # -------- Upload to S3 --------
+    file_name = f"crowdstrike_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=f"{S3_PREFIX}{file_name}",
+        Body=csv_buffer.getvalue()
+    )
+
+    print(f"Uploaded: {file_name}")
+    print(f"Total instances processed: {len(instance_data)}")
+
+    return {
+        "statusCode": 200,
+        "body": f"Report generated: {file_name}"
+    }
